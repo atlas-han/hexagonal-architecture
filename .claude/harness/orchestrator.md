@@ -195,15 +195,82 @@ git commit -m "feat(kotlin): sprint NN — <summary>"
 
 이 통과해야 함. 실패하면 `needs input: final build failed — see logs` 로 종료.
 
+## 4.5 Learnings (Agent 호출)
+
+Final verification 가 통과한 직후, **Retrospective agent — Phase L** 을 1회
+호출해 cross-sprint 학습 산출물을 작성한다.
+
+```
+subagent_type: general-purpose
+description: "Retrospective Phase L — learnings"
+prompt: |
+  당신은 .claude/harness/agents/retrospective.md 에 정의된 Retrospective
+  agent 입니다. 먼저 그 파일을 Read 로 읽고, 거기 적힌 규약을 그대로
+  따르세요.
+
+  이번 호출은 **Phase L (Learnings)** 만 수행하세요.
+  - cwd 는 이미 worktree (.claude/worktrees/harness/kotlin-migration).
+  - 산출물: .claude/harness/workspace/learnings.md (한 파일).
+  - 코드 편집 / git 명령 / commit 금지.
+  - 완료되면 `learnings written: <path>` 한 줄을 출력하고 종료.
+```
+
+호출 후 오케스트레이터는 `learnings.md` 가 실제로 생겼는지 Read 로
+확인한다. 누락되어 있거나 길이가 비정상적으로 짧으면 `needs input:
+learnings.md missing or malformed` 로 정지한다.
+
+## 4.6 Wrap-up (Agent 호출)
+
+Learnings 가 작성되면, **Retrospective agent — Phase W** 를 1회 호출해
+최종 요약 산출물을 작성한다.
+
+```
+subagent_type: general-purpose
+description: "Retrospective Phase W — wrap-up"
+prompt: |
+  당신은 retrospective.md 의 Retrospective agent 입니다.
+  Phase L 은 이미 끝났고 learnings.md 가 작성되어 있습니다.
+
+  이번 호출은 **Phase W (Wrap-up)** 만 수행하세요.
+  - 산출물: .claude/harness/workspace/wrap-up.md (한 파일).
+  - learnings.md, spec/product-spec.md, logs/run-log.md 와
+    `git log --oneline` 결과를 종합해 1-페이지 요약을 작성.
+  - 코드 편집 / git 명령 / commit 금지.
+  - 완료되면 `wrap-up written: <path>` 한 줄을 출력하고 종료.
+```
+
+호출 후 `wrap-up.md` 의 존재를 Read 로 확인. 누락이면 `needs input:
+wrap-up.md missing` 로 정지.
+
+## 4.7 Commit (오케스트레이터 수행)
+
+learnings.md + wrap-up.md 두 파일을 한 커밋으로 묶는다:
+
+```
+git add .claude/harness/workspace/learnings.md \
+        .claude/harness/workspace/wrap-up.md
+git commit -m "chore(harness): record migration learnings and wrap-up"
+```
+
+- 이 단계의 커밋도 `--no-verify` / amend 금지.
+- 훅 실패 시 원인 진단 후 동일하게 Phase L 또는 Phase W 부터 재시도.
+  최대 2 회까지 재시도; 초과 시 `needs input:` 으로 정지.
+
+커밋 SHA 를 `logs/run-log.md` 에 append (§5 포맷). phase 는 `retrospective`.
+
+## 4.8 Final report (사용자에게)
+
 마지막으로 사용자에게 다음을 보고:
 
 - worktree 경로 (`.claude/worktrees/harness/kotlin-migration`)
 - 브랜치명 (`harness/kotlin-migration`)
 - sprint 별 커밋 SHA + 한 줄 요약
+- 신규 산출물 경로: `workspace/learnings.md`, `workspace/wrap-up.md`
 - 머지/푸시 다음 단계 제안 (오케스트레이터가 직접 머지하지 않음).
+  `wrap-up.md` §5 의 체크리스트를 그대로 인용해도 좋다.
 
-그 후 `result: kotlin migration complete — N sprints, branch
-harness/kotlin-migration ready for review` 로 종료.
+그 후 `result: kotlin migration complete — N sprints + retrospective,
+branch harness/kotlin-migration ready for review` 로 종료.
 
 ## 5. 누적 로그
 
@@ -256,6 +323,19 @@ for N in sprint_numbers:
     # this is the resume point
     start sprint N from §3.1 or, if contract already AGREED, §3.3
     break out of the resume search and proceed normally from §3
+
+# 모든 sprint 가 이미 PASS 인 경우에도 종료가 아니라 retrospective 단계를 확인한다:
+if all sprints PASS:
+    if workspace/learnings.md missing:
+        run §4.5 (Phase L)
+    if workspace/wrap-up.md missing:
+        run §4.6 (Phase W)
+    if either was just written:
+        run §4.7 (commit) and §4.8 (final report)
+    else:
+        report "all sprints + retrospective already complete" and exit
 ```
 
-즉, **가장 작은 미완료 sprint 부터 시작**한다.
+즉, **가장 작은 미완료 sprint 부터 시작**하고, sprint 가 전부 PASS 인
+상태에서도 retrospective 산출물이 빠져 있으면 그 단계까지 마저
+수행한다.
