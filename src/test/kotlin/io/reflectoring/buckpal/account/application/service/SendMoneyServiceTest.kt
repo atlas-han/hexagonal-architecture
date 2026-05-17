@@ -15,7 +15,6 @@ import org.mockito.BDDMockito.then
 import org.mockito.Mockito
 import org.mockito.Mockito.times
 import java.time.LocalDateTime
-import java.util.Optional
 import java.util.stream.Collectors
 
 class SendMoneyServiceTest {
@@ -78,8 +77,8 @@ class SendMoneyServiceTest {
         val money = Money.of(500L)
 
         val command = SendMoneyCommand(
-            sourceAccount.getId().get(),
-            targetAccount.getId().get(),
+            sourceAccount.id!!,
+            targetAccount.id!!,
             money,
         )
 
@@ -87,8 +86,8 @@ class SendMoneyServiceTest {
 
         assertThat(success).isTrue()
 
-        val sourceAccountId = sourceAccount.getId().get()
-        val targetAccountId = targetAccount.getId().get()
+        val sourceAccountId = sourceAccount.id!!
+        val targetAccountId = targetAccount.id!!
 
         then(accountLock).should().lockAccount(eq(sourceAccountId))
         then(sourceAccount).should().withdraw(eq(money), eq(targetAccountId))
@@ -108,8 +107,7 @@ class SendMoneyServiceTest {
 
         val updatedAccountIds: List<AccountId> = accountCaptor.allValues
             .stream()
-            .map(Account::getId)
-            .map(Optional<AccountId>::get)
+            .map { it.id!! }
             .collect(Collectors.toList())
 
         for (accountId in accountIds) {
@@ -157,13 +155,13 @@ class SendMoneyServiceTest {
 
     private fun givenAnAccountWithId(id: AccountId): Account {
         val account = Mockito.mock(Account::class.java)
-        given(account.getId())
-            .willReturn(Optional.of(id))
+        given(account.id)
+            .willReturn(id)
         // Compute sentinel values BEFORE registering matchers, otherwise an
-        // intervening `account.getId()` mock invocation would consume the
+        // intervening `account.id` mock invocation would consume the
         // queued matchers and Mockito would report
         // "0 matchers expected, 2 recorded".
-        val accountIdValue = account.getId().get()
+        val accountIdValue = account.id!!
         val now = LocalDateTime.now()
         Mockito.eq(accountIdValue)
         Mockito.any(LocalDateTime::class.java)
