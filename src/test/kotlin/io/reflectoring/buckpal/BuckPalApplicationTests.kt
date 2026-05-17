@@ -1,15 +1,20 @@
 package io.reflectoring.buckpal
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.extension.ExtendWith
+import io.kotest.core.spec.style.DescribeSpec
+import io.kotest.extensions.spring.SpringExtension
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.test.context.junit.jupiter.SpringExtension
 
-@ExtendWith(SpringExtension::class)
 @SpringBootTest
-class BuckPalApplicationTests {
+class BuckPalApplicationTests : DescribeSpec() {
 
-    @Test
-    fun contextLoads() {
+    override fun extensions() = listOf(SpringExtension)
+
+    init {
+        describe("Spring application context") {
+            it("loads") {
+                // intentionally empty: success is the absence of
+                // BeanCreationException from the @SpringBootTest container
+            }
+        }
     }
 }
