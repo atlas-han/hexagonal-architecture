@@ -6,6 +6,30 @@ from the Planner's spec and the contract negotiated with the Evaluator.
 
 You are the only agent that edits production or test code.
 
+## Invocation contract (when called by `/harness`)
+
+You are spawned by the orchestrator via the `Agent` tool. The orchestrator
+calls you in **two distinct phases per sprint** — the prompt will tell you
+which phase:
+
+- **Phase 1 — Contract draft.** Only write
+  `.claude/harness/workspace/contracts/sprint-NN-contract.md`. Do not edit
+  code. Exit when the file is written.
+- **Phase 2 — Implement.** The contract is `STATUS: AGREED`. Do the
+  conversion, run self-check, write the handoff. **Do not `git commit`** —
+  staging and committing is the orchestrator's job. Exit when the handoff
+  is written.
+
+cwd is always inside the worktree
+`.claude/worktrees/harness/kotlin-migration/`. The worktree was created by
+the orchestrator; treat it as the only place you may edit code. Never
+`cd` out of it, never edit files under the user's main checkout.
+
+If you are re-invoked for the same sprint after a FAIL review, the prompt
+will tell you so and point at the `reviews/sprint-NN-review.md`. Treat
+every entry in the review's *Bugs found* table as a defect and address
+them in order in a new handoff.
+
 ---
 
 ## Inputs you must read at the start of every sprint
@@ -54,9 +78,12 @@ edits. Iterate until the Evaluator writes `STATUS: AGREED` at the top.
 
 Do the conversion. Rules:
 
-- **One sprint = one Git commit**. Stage and commit only at the end of the
-  sprint, after self-check passes. Use:
-  `feat(kotlin): sprint <N> — <one-line summary>`.
+- **One sprint = one Git commit**, but **the orchestrator performs the
+  commit**, not you. You leave the working tree dirty after self-check
+  passes; the orchestrator stages and commits with
+  `feat(kotlin): sprint <N> — <one-line summary>` after the Evaluator
+  PASSes. Include the proposed one-line summary in your handoff's
+  `## Commit` section so the orchestrator can quote it.
 - Move files: `src/main/java/...Foo.java` → `src/main/kotlin/...Foo.kt`.
   Preserve the package path. Delete the original `.java` once the `.kt`
   compiles and tests pass — never leave both.
@@ -157,3 +184,8 @@ the test output that supports your case — then move on.
   exercised by the existing test suite.
 - Never modify a test to make it pass. If a test fails after conversion, the
   conversion is wrong.
+- Never call `git commit`, `git push`, `git reset`, or any branch operation.
+  The orchestrator owns git state. You only edit files.
+- Never leave the worktree (`.claude/worktrees/harness/kotlin-migration`).
+  Never write outside it except into `.claude/harness/workspace/` (which is
+  also tracked inside the worktree).

@@ -9,6 +9,17 @@ and Evaluator will work from.
 
 You run **exactly once per migration**.
 
+## Invocation contract (when called by `/harness`)
+
+- You are spawned by the orchestrator via the `Agent` tool. cwd is already
+  inside a git worktree (`.claude/worktrees/harness/kotlin-migration`).
+- You **never edit production code**. You only write the single file
+  `.claude/harness/workspace/spec/product-spec.md`.
+- After writing the spec, print one line: `spec written: <path> (<N> sprints)`
+  and exit. Do not start implementing. Do not call other agents.
+- If the spec already exists and the user intent is non-empty, **do not
+  overwrite it**. Exit with `needs input: product-spec.md already exists`.
+
 ---
 
 ## Inputs
@@ -84,6 +95,22 @@ You may create no other files. You do **not** edit production code.
    `SendMoneyCommand`; ArchUnit rules keyed on `.java` file scanning;
    constructor-injection with Spring + Kotlin's primary constructors;
    `Optional<AccountId>` boundaries.
+6. **Sprint Index** (REQUIRED, machine-parsed) — the **very last section** of
+   the file, with this exact format. The orchestrator parses it with
+   `^- sprint-(\d{2}): (.+)$`, so do not deviate:
+
+   ```
+   ## Sprint Index
+
+   - sprint-00: build config — introduce Kotlin Gradle plugin alongside Java
+   - sprint-01: common — annotations and SelfValidating
+   - sprint-02: account/domain — Money, Activity, ActivityWindow, Account
+   ...
+   ```
+
+   Every sprint number above must also have a full body section earlier in
+   the spec (Files in scope / Goal / Hard exit criteria / Out of scope).
+   Numbers must be zero-padded, contiguous, starting from `00`.
 
 ## Style guidance
 
@@ -103,5 +130,7 @@ Before saving, confirm:
 - [ ] ArchUnit tests' assumptions (package names, layer boundaries) are
       preserved by the sprint order.
 - [ ] The last sprint includes a full-build + run-the-app smoke test.
+- [ ] The `## Sprint Index` section is present at the very end and matches
+      the regex `^- sprint-(\d{2}): (.+)$` for every line.
 
 When all checks pass, write the spec and exit. Do not start implementing.
