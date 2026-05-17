@@ -7,3 +7,4 @@
 2026-05-17T14:12:00Z | hot-fix | commit | 753c1dc — pin kotlinx-coroutines (core+test, jvm variants) to 1.6.4 for Kotest dispatcher
 2026-05-17T14:21:23Z | sprint-01 | commit | db46a28 — Kotest BehaviorSpec for account/domain (AccountTest, ActivityWindowTest)
 2026-05-17T14:40:12Z | sprint-02 | commit | d81ebb5 — SendMoneyServiceTest to Kotest + MockK
+2026-05-17T14:54:09Z | sprint-03 | commit | 426e129 — SendMoneyControllerTest to Kotest DescribeSpec + @MockkBean + SpringExtension
