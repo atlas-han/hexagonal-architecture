@@ -24,6 +24,7 @@ build/
 /dist/
 /nbdist/
 /.nb-gradle/
+.claude/worktrees
 
 ### VS Code ###
 .vscode/
