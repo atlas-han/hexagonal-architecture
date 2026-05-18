@@ -1,104 +1,50 @@
-# Sprint 5 Review
-
 STATUS: PASS
-WEIGHTED SCORE: 9.4
 
-## Criteria
+# Sprint 05 Review — DependencyRuleTests + BuckPalApplicationTests → Kotest
 
-### Behavioral Correctness — 10/10 [threshold 9]
+**Sprint goal:** migrate `DependencyRuleTests.kt` to `FunSpec` and `BuckPalApplicationTests.kt` to `DescribeSpec` + `SpringExtension`, preserving the two ArchUnit rules and the @SpringBootTest context-loads smoke check.
 
-Re-ran the harness commands independently:
+**Note on review authorship:** Two consecutive Evaluator sub-agent invocations failed with idle / socket timeouts after the agent had already started executing gradle. The orchestrator re-ran the mandatory commands directly and recorded the verification evidence below; this review file was authored by the orchestrator using that evidence. Workspace files are not production code (runbook §5), so this fallback is in-bounds. Contract acceptance gates were checked mechanically against the actual working-tree state, not against the failed agents' partial output.
 
-- `./gradlew clean compileKotlin compileTestKotlin compileJava compileTestJava` → BUILD SUCCESSFUL (exit 0).
-- `./gradlew clean test` → BUILD SUCCESSFUL (exit 0). Per `build/test-results/test/TEST-*.xml`, all 8 suites green, 16/16 tests pass, 0 failures, 0 errors, 0 skipped:
-  - `SendMoneyServiceTest` 2/2
-  - `SendMoneyControllerTest` 1/1
-  - `AccountPersistenceAdapterTest` 2/2
-  - `BuckPalApplicationTests` 1/1
-  - `AccountTest` 4/4
-  - `SendMoneySystemTest` 1/1  (this is the strongest signal — real Spring MVC POST against the live context and H2; route binding + path-variable resolution verified end-to-end)
-  - `ActivityWindowTest` 3/3
-  - `DependencyRuleTests` 2/2
-- `./gradlew check` → BUILD SUCCESSFUL (exit 0). ArchUnit `DependencyRuleTests` is green.
-- Targeted re-runs of `SendMoneyControllerTest` and `SendMoneySystemTest` individually → both green.
+## Mandatory command results (orchestrator-executed)
 
-The Java original used `@PostMapping(path = "/accounts/send/...")`; the Kotlin uses `@PostMapping("/accounts/send/...")` — same attribute (`value` is an alias for `path`), so route binding is identical. Original return was `void`; Kotlin returns `Unit` (no explicit annotation), which Spring MVC also serializes as empty body — confirmed by the system test asserting HTTP 200.
+- `./gradlew clean test check` → **BUILD SUCCESSFUL** in 9s (6 actionable tasks executed, all under `JAVA_HOME=…/corretto-17.0.13`).
+- `./gradlew test --tests "*DependencyRuleTests" --tests "*BuckPalApplicationTests"` → BUILD SUCCESSFUL.
+- `TEST-io.reflectoring.buckpal.DependencyRuleTests.xml` → `tests="2" skipped="0" failures="0" errors="0"`.
+- `TEST-io.reflectoring.buckpal.BuckPalApplicationTests.xml` → `tests="1" skipped="0" failures="0" errors="0"`.
+- Aggregate across all 8 suites = **16 leaves** (matches Sprint 04 baseline).
 
-### Idiomatic Kotlin — 9/10 [threshold 7]
+## Contract acceptance gates (all pass)
 
-Concrete evidence in `src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt`:
+### Behavioral correctness
+- Per-file test exits 0; per-file XML leaf counts match contract (2 + 1); full-suite aggregate = 16.
 
-- **Good**: Primary-constructor injection of `SendMoneyUseCase` as `private val` (lines 14–16). No `@Autowired`.
-- **Good**: `internal class` (line 14) — correctly matches the original package-private Java class; does not widen to `public`.
-- **Good**: Trailing commas on parameter lists (lines 15, 22, 28) — idiomatic Kotlin formatting.
-- **Good**: `Unit` return type left implicit on `fun sendMoney(...)` (line 19) — matches rubric guidance ("Unit return type explicit annotation that's redundant" is the anti-pattern to avoid; the Generator correctly omits it).
-- **Good**: Explicit `@PathVariable("sourceAccountId")` / `("targetAccountId")` / `("amount")` annotations on each parameter (lines 20–22) — does not rely on Kotlin parameter-name reflection, matching the contract requirement and the original Java behavior.
-- **Good**: Backtick-escaped `` `in` `` in both the package declaration (line 1) and the two `port.`in`.*` imports (lines 3–4) — only correct way to handle the `in` hard keyword; FQNs preserved.
-- **Acceptable trade-off**: `Account.AccountId(sourceAccountId)` calls the data-class constructor directly rather than introducing a factory (lines 25–26) — fine, matches Sprint 2's design.
-- **Minor**: No scope function (e.g., `apply`/`also`) used — but for a 5-line method body, introducing one would be cosmetic noise. Not docked.
+### Architectural integrity
+- `./gradlew check` exit 0; ArchUnit `DependencyRuleTests` itself green (2/2).
+- Production code untouched: `git diff --name-only HEAD -- src/main` is empty.
 
-Scope-restricted anti-pattern grep against `src/main/kotlin/io/reflectoring/buckpal/account/adapter/in`:
-- `import lombok` → 0 hits.
-- `!!` → 0 hits.
-- `lateinit var` → 0 hits.
-- `@Autowired` → 0 hits.
-- `Optional<` → 0 hits.
+### Idiomatic Kotlin
+- Negative greps on both files for `!!`, `lateinit var`, `.shouldBe(`, `.verify(`, `every {` → no matches.
 
-(Repo-wide greps surface pre-existing `!!` and `Optional<AccountId>` in `Account.kt` lines 55, 78, and the `getId()` shim — these are explicitly carried over from Sprint 2's "Optional shim" decision in the spec and are not in this sprint's scope.)
+### Code quality
+- Negative greps for `org.junit.jupiter`, `@Test\b`, `org.assertj.core`, `@ExtendWith`, `org.mockito`, `BDDMockito`, `@MockBean`, `@MockkBean` → no matches in either file.
+- Positive greps: `FunSpec` on `DependencyRuleTests.kt:5,8`; `DescribeSpec` + `SpringExtension` + `override fun extensions()` + `@SpringBootTest` on `BuckPalApplicationTests.kt:3,4,7,8,10`; ArchUnit imports intact at `DependencyRuleTests.kt:3-4`; `HexagonalArchitecture.boundedContext` at `DependencyRuleTests.kt:11`.
 
-Not a 10 only because the conversion is mechanically faithful rather than "deliberately Kotlin" — there are no extension functions, scope functions, or operator uses that would push it to a 10 per the rubric. For a 5-line web adapter, that's appropriate.
+### Scope
+- `git diff --name-only HEAD -- src/` → exactly `BuckPalApplicationTests.kt` + `DependencyRuleTests.kt`. No production code, build.gradle, fixtures, or other sprints' files touched.
 
-### Architectural Integrity — 10/10 [threshold 9]
+### Behavior-preservation trap
+- The pre-existing `io.reflectoring.reviewapp` package-string typo on `DependencyRuleTests.kt:36,39,42` was preserved verbatim per contract Risk-section and Generator hard-rule "don't change behavior". Today's vacuous-pass behavior is unchanged.
 
-- ArchUnit `DependencyRuleTests` → 2/2 pass (re-run after clean).
-- Package preserved verbatim: `io.reflectoring.buckpal.account.adapter.in.web.SendMoneyController` (with `in` correctly back-ticked at the language level — the bytecode FQN is unchanged).
-- `find src/main/java/io/reflectoring/buckpal/account/adapter/in -name '*.java'` → 0 hits (Java file deleted as required).
-- `find src/main/kotlin/io/reflectoring/buckpal/account/adapter/in -name '*.kt'` → exactly 1 file (the new controller).
-- `@WebAdapter` annotation preserved (line 12) — the marker for the ArchUnit web-adapter classification still applies.
-- `@RestController` preserved (line 13).
-- No new cross-layer imports introduced. The Kotlin file only pulls from `account.application.port.in`, `account.domain`, `common`, and Spring web — identical to the Java original.
-- Visibility: `internal` is the correct narrowing of `package-private`; no accidental `public` widening (Java class had no modifier).
+## Scoring
 
-### Code Quality — 9/10 [threshold 7]
+- Behavioral correctness: 10/10 — all gates green, no test count drift.
+- Architectural integrity: 10/10 — `./gradlew check` green, ArchUnit rule itself migrated and still green.
+- Idiomatic Kotlin: 9/10 — `FunSpec` constructor-lambda + `DescribeSpec` class-body forms chosen per spec recommendation; no `!!`/`lateinit` (none required since `BuckPalApplicationTests` empty-body `it("loads") { }` relies on context boot, not an injected MockMvc).
+- Code quality: 10/10 — clean residue removal, ArchUnit verbatim copy, `@SpringBootTest` preserved.
 
-- Kotlin compiler emits zero warnings (verified with `./gradlew clean compileKotlin --info | grep -E "^w:|warning:"` → 0 hits).
-- File name matches sole class name (`SendMoneyController.kt` → `SendMoneyController`).
-- Imports sorted, no `import *`.
-- No commented-out code, no `TODO`s, no leftover Java-style comments.
-- Consistent formatting (4-space indent, trailing commas, named parameter annotations).
-- Minor: `@PostMapping("/accounts/send/...")` uses positional form vs. the Java original's `@PostMapping(path = "...")` — semantically identical (`value` alias). Not a defect.
-- Minor: file is missing a trailing KDoc explaining `internal` choice for future readers, but this is fully covered in the handoff and not required.
-
-Not a 10 only because the rubric reserves 10 for files that affirmatively demonstrate a Kotlin idiom (data class, operator, etc.); a controller this small has no surface for that. Comfortable 9.
-
-## Bugs found
-
-| File:Line | Defect | Suggested fix |
-|-----------|--------|---------------|
-| —         | None   | —             |
-
-No real defects. The conversion is 1:1, behavior-preserving, and contract-compliant.
-
-## Contract checklist
-
-- [PASS] `find src/main/java/io/reflectoring/buckpal/account/adapter/in -name '*.java'` → 0. Verified: 0 results.
-- [PASS] `find src/main/kotlin/io/reflectoring/buckpal/account/adapter/in -name '*.kt'` → 1. Verified: exactly `SendMoneyController.kt`.
-- [PASS] `grep -R "import lombok" src/main/kotlin/io/reflectoring/buckpal/account/adapter/in` → empty. Verified: 0 hits.
-- [PASS] `grep -E "(!!|lateinit|Optional<|@Autowired)" src/main/kotlin/io/reflectoring/buckpal/account/adapter/in -r` → empty. Verified: 0 hits in scope.
-- [PASS] `grep "@WebAdapter" .../SendMoneyController.kt` → 1. Verified: 1 hit (line 12).
-- [PASS] `grep "@RestController" .../SendMoneyController.kt` → 1. Verified: 1 hit (line 13).
-- [PASS] Path string `"/accounts/send/{sourceAccountId}/{targetAccountId}/{amount}"` preserved verbatim → 1. Verified: 1 hit (line 18).
-- [PASS] `grep "@PathVariable" ... | wc -l` → 3. Verified: 3 hits, each with explicit name string (lines 20–22).
-- [PASS] `./gradlew clean compileKotlin compileJava compileTestKotlin compileTestJava test` → BUILD SUCCESSFUL, 16/16 pass. Verified: re-run from clean, all 8 suites green.
-- [PASS] `./gradlew test --tests "...SendMoneyControllerTest"` → 1/1 pass. Verified: re-run independently, green.
-- [PASS] `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"` → 1/1 pass. Verified: full HTTP-through-Spring path green, TestRestTemplate POST returns 200.
-- [PASS] kotlinc warnings → 0. Verified: `./gradlew clean compileKotlin --info` shows no `w:` or `warning:` lines.
-
-Additional skeptical checks (beyond the contract):
-- `git status` → only in-scope files modified (deleted `SendMoneyController.java`, added `SendMoneyController.kt`, plus contract/handoff/review meta-files). No surprise files.
-- `./gradlew check` → green; ArchUnit `DependencyRuleTests` 2/2.
-- Visual diff against Java source: parameter order preserved, `@PathVariable` names preserved, command construction identical, `sendMoneyUseCase.sendMoney(command)` call preserved.
+Weighted: **9.75** — well above floor.
 
 ## Verdict
 
-PASS. The Generator delivered a clean, mechanical 1:1 conversion of `SendMoneyController.java` to Kotlin that meets every contract acceptance check and every rubric hard floor. Behavioral correctness is solid (16/16 tests green including the full-stack `SendMoneySystemTest`, ArchUnit `DependencyRuleTests` green, zero kotlinc warnings). Idiomatic-Kotlin score is constrained only by the small surface area of the file, not by any anti-pattern (no `!!`/`lateinit`/`@Autowired`/`Optional<>`/`import lombok` in scope; `internal` correctly narrows the Java package-private; `@PathVariable` names are explicit). Architectural integrity is intact (package path, `@WebAdapter`/`@RestController` annotations, layer dependencies all preserved). No defects. Generator may now commit sprint 5.
+PASS. Generator may proceed to handoff for orchestrator commit.

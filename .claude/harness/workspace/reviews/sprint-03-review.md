@@ -1,250 +1,253 @@
-# Sprint 3 Review
-
 STATUS: PASS
-WEIGHTED SCORE: 9.45
 
-## Scope verification
+# Sprint 03 Review
 
-`git diff --stat HEAD` shows exactly 6 Java port files deleted:
-
-```
-.../port/in/GetAccountBalanceQuery.java            | 10 -------
-.../port/in/SendMoneyCommand.java                  | 34 ----------------------
-.../port/in/SendMoneyUseCase.java                  | 11 -------
-.../port/out/AccountLock.java                      | 11 -------
-.../port/out/LoadAccountPort.java                  | 11 -------
-.../port/out/UpdateAccountStatePort.java           |  9 ------
-6 files changed, 86 deletions(-)
-```
-
-Untracked: the 6 `.kt` files under `src/main/kotlin/.../port/{in,out}/`, the
-sprint-03 contract, and the sprint-03 handoff. Zero touches to `src/test/`,
-zero touches to any other production file. Scope is bounded.
+WEIGHTED SCORE: 9.05
 
 ## Criteria
 
 ### Behavioral Correctness — 10/10 [threshold 9]
 
-Re-ran every required command from a clean state:
+Independently re-ran the mandatory commands with `JAVA_HOME` pointing at
+Corretto 17.0.13:
 
-| Command | Result |
-|---------|--------|
-| `./gradlew clean` | BUILD SUCCESSFUL |
-| `./gradlew compileKotlin compileJava compileTestKotlin compileTestJava` | BUILD SUCCESSFUL |
-| `./gradlew test` | BUILD SUCCESSFUL |
-| `./gradlew check` | BUILD SUCCESSFUL |
-| `./gradlew test --tests "...SendMoneyServiceTest"` | tests=2, failures=0, errors=0 |
-| `./gradlew test --tests "...SendMoneyControllerTest"` | tests=1, failures=0 |
-| `./gradlew test --tests "...DependencyRuleTests"` | tests=2, failures=0 |
+- `git status` — only one in-scope source file modified
+  (`src/test/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyControllerTest.kt`).
+  Harness artefacts (`run-log.md`, contracts/handoffs) are workspace-only,
+  not production sources.
+- `./gradlew clean` → `BUILD SUCCESSFUL in 320ms`.
+- `./gradlew compileKotlin compileTestKotlin` → `BUILD SUCCESSFUL in 1s`.
+  Both Kotlin source sets compile from clean; this proves
+  `com.ninjasquad.springmockk.MockkBean` and
+  `io.kotest.extensions.spring.SpringExtension` resolve at the compiler.
+- `./gradlew test` → `BUILD SUCCESSFUL in 8s`. Full suite green.
+- `./gradlew check` → `BUILD SUCCESSFUL` (test + ArchUnit, both UP-TO-DATE).
 
-Aggregated from `build/test-results/test/TEST-*.xml`: 16/16 green
-(BuckPalApplicationTests=1, AccountTest=4, ActivityWindowTest=3,
-SendMoneySystemTest=1, SendMoneyServiceTest=2, SendMoneyControllerTest=1,
-AccountPersistenceAdapterTest=2, DependencyRuleTests=2). The system test
-`SendMoneySystemTest` (HTTP `POST /accounts/send/1/2/500` on H2) passes,
-which is the strongest live signal — it actually constructs
-`SendMoneyCommand` through the Spring stack and the data-class +
-`SelfValidating` interop survives reflection-driven Bean Validation.
+Aggregate leaf count parsed from
+`build/test-results/test/TEST-*.xml`: `AccountTest=4 + ActivityWindowTest=3 +
+SendMoneyServiceTest=2 + SendMoneyControllerTest=1 + BuckPalApplicationTests=1
++ DependencyRuleTests=2 + AccountPersistenceAdapterTest=2 +
+SendMoneySystemTest=1 = 16`. Identical to the Sprint 02 baseline.
 
-**Weakness:** the Bean Validation NULL-rejection path is statically guarded
-(`@field:NotNull` lands on the JVM field — verified by `javap -v` below)
-but is NOT exercised at runtime by any green test. A future refactor that
-accidentally drops the site target would not trip CI. Documented as a
-pre-existing test gap by the Generator; remains a real residual risk.
+`TEST-io.reflectoring.buckpal.account.adapter.in.web.SendMoneyControllerTest.xml`
+header verbatim: `tests="1" skipped="0" failures="0" errors="0"`.
 
-### Idiomatic Kotlin — 10/10 [threshold 7]
+### Idiomatic Kotlin — 8/10 [threshold 7]
 
-Sampled all 6 files (small enough to fully audit, not just sample):
+Read the migrated file end-to-end (55 lines). Concrete observations:
 
-- `SendMoneyCommand.kt:8` — `data class` with three `val` properties, all
-  with `@field:NotNull` site target. Trailing comma after `money`. Clean.
-- `SendMoneyCommand.kt:14` — `init { validateSelf() }` block, single
-  statement, mirrors original Java intent.
-- `SendMoneyUseCase.kt:3` / `GetAccountBalanceQuery.kt:6` /
-  `LoadAccountPort.kt:6` / `UpdateAccountStatePort.kt:5` /
-  `AccountLock.kt:5` — minimal interfaces, no default methods, no
-  `@JvmDefault`, no companion objects, no annotations.
-- Anti-pattern grep `grep -RE "(!!|lateinit|Optional<|@Autowired)"` against
-  `src/main/kotlin/.../port` → 0 hits.
-- `grep -R "import lombok" src/main/kotlin src/test/kotlin` → 0 hits.
-- `package ... .`in`` backtick escaping present in all 3 in-files; Java
-  callers in `SendMoneyController.java:3-4` and `SendMoneyService.java:3-7`
-  reference the unescaped FQN `...port.in.*` and still compile (Java
-  `in` is not a keyword).
-- `data class` extending abstract non-data `SelfValidating<T>()` — Kotlin
-  1.6.21 supports this; `javap -p` confirms compiler-synthesized
-  `equals(Object)`, `hashCode()`, `toString()`, `copy(...)`, `component1..3`
-  on the class. No hand-rolled overrides, matching the contract's amended
-  guidance.
-- Trailing-comma style is consistent with Sprint 2.
+- File:19 — `class SendMoneyControllerTest : DescribeSpec()` with `init { ... }`
+  is the correct class-body form when class-level properties must be hosted
+  alongside spec body; constructor-arg lambda form would have prevented the
+  `@Autowired` / `@MockkBean` properties.
+- File:21 — `override fun extensions() = listOf(SpringExtension)` registers
+  the Kotest Spring extension as documented for Kotest 5.5.x. Single-
+  expression body, idiomatic.
+- File:23–24, 26–27 — exactly two `lateinit var` declarations, each carrying
+  the required Spring-injection annotation on the immediately preceding line
+  (`@Autowired` for `mockMvc`, `@MockkBean` for `sendMoneyUseCase`). Matches
+  the contract's explicitly-permitted exception. No other `lateinit var` in
+  the file.
+- File:32 — `every { sendMoneyUseCase.sendMoney(any()) } returns true` uses
+  the MockK block form (no trailing-method-call form). Required because
+  springmockk's default is `relaxed = false` and the use-case returns
+  `Boolean`; the controller ignores the value, so `true` is fine.
+- File:41 — `.andExpect(status().isOk)` uses Kotlin property-form on the
+  no-arg getter. Idiomatic; method-form would also have compiled.
+- File:43–51 — `verify { sendMoneyUseCase.sendMoney(SendMoneyCommand(...)) }`
+  block form, no `eq` wrapper. `SendMoneyCommand` is a Kotlin `data class`
+  so `equals` is value-based; no MockK matcher needed.
+- No `!!` anywhere. No `@Test`. No `org.junit.jupiter.*` or `org.mockito.*`
+  imports. No `Mockito.` prefix.
 
-**Weakness:** the trailing comma on line 11 is fine, but the interfaces
-have a vestigial blank line between the package and the `interface` keyword
-(e.g., `SendMoneyUseCase.kt:2`, `AccountLock.kt:2`). Trivial, not worth a
-nit at scale, but it's not what an idiomatic Kotlin formatter would
-emit. Score stays at 10 — too small to dock.
+Mild nits (not failures, score docked one point):
+
+- File:30 — `describe("POST /accounts/send/{sourceAccountId}/{targetAccountId}/{amount}")`
+  is verbose; the controller-side route literal is `/accounts/send/{src}/{dst}/{amount}`
+  is shorter. Cosmetic, not blocking.
+- File:39 — `.header("Content-Type", "application/json")` is preserved from
+  the legacy test even though the controller does not assert content
+  negotiation. Carrying baggage rather than a defect; future cleanup can
+  drop it without changing behavior. Same baggage as the pre-migration file.
+
+Could have been a 9 if the spec literal/header baggage were trimmed; left at
+8 because the contract explicitly preserved the HTTP exchange verbatim, so
+trimming was out of scope this sprint.
 
 ### Architectural Integrity — 10/10 [threshold 9]
 
-- `./gradlew check` green → ArchUnit rules pass.
-- `DependencyRuleTests` (2 tests) explicitly green.
-- All 6 files live at the exact paths the contract specified; no package
-  drift.
-- Audited imports in all 6 files:
-  - `port.in` files import only `account.domain.*`, `common.SelfValidating`,
-    and `javax.validation.constraints.NotNull`. None import `port.out.*`.
-  - `port.out` files import only `account.domain.*` and `java.time.LocalDateTime`.
-    None import `port.in.*`.
-- No `port.*` import of `adapter.*` or any Spring symbol.
+`./gradlew check` ran (UP-TO-DATE after the full `test` task). ArchUnit
+`DependencyRuleTests` reports `tests="2" failures="0" errors="0"`. No
+production code touched (`git diff --name-only HEAD -- src/main/` is empty).
+The migrated file lives at the same package path
+`io.reflectoring.buckpal.account.adapter.`in`.web` (back-ticked `in`
+segment intact). The class-level `@WebMvcTest(controllers =
+[SendMoneyController::class])` annotation is preserved verbatim, so the
+test slice still binds to the same controller.
 
-**Weakness:** the `in` package is now declared in Kotlin source as
-``port.`in` `` while ArchUnit string assertions and Java callers reference
-it as `port.in`. The JVM doesn't care, but if a future Kotlin-only
-refactor uses a `KClass<*>.java.`package`.name` assertion, the escaping
-could trip someone up. Currently invisible — no rule depends on it.
+### Code Quality — 9/10 [threshold 7]
 
-### Code Quality — 10/10 [threshold 7]
+All contract greps verified:
 
-- 0 kotlinc warnings on `compileKotlin --rerun-tasks --warning-mode=all`
-  for the 6 new files (no `w:` lines).
-- File-per-class organisation; filename matches the single declared type
-  in each file.
-- Imports are minimal and ordered; no `import *`.
-- No commented-out code, no `TODO` markers, no leftover Java-style doc
-  comments.
+Negative (each `exit: 1`, no matches):
+`^import org\.mockito`, `Mockito\.`,
+`^import org\.springframework\.boot\.test\.mock\.mockito`, `BDDMockito`,
+`@MockBean`, `^import org\.junit\.jupiter`, `@Test\b`,
+`^import org\.assertj\.core`, `!!`, `\.shouldBe\(`, `\.verify\(`.
 
-**Weakness:** `SendMoneyCommand.kt` does not carry a KDoc comment
-explaining *why* `@field:` site target is mandatory (load-bearing for
-Bean Validation correctness). The contract explains it; the source file
-does not. Future readers refactoring without context could remove the
-site target and silently break the null guard (which no test exercises).
+Positive (each at least one match):
+`^class SendMoneyControllerTest\s*:\s*DescribeSpec` (line 19),
+`^import io\.kotest\.core\.spec\.style\.DescribeSpec` (line 4),
+`^import io\.kotest\.extensions\.spring\.SpringExtension` (line 5),
+`override fun extensions\(\)` (line 21), `@MockkBean` (line 26),
+`^import io\.mockk\.(every|verify)` (lines 6, 7), `@WebMvcTest` (line 18).
 
-## Critical independent verification: `javap` on `SendMoneyCommand.class`
-
-`javap -p` confirms class shape (constructor, getters, `equals(Object)`,
-`hashCode()`, `toString()`, `copy`, `component1..3`):
-
-```
-public final class io.reflectoring.buckpal.account.application.port.in.SendMoneyCommand extends io.reflectoring.buckpal.common.SelfValidating<...> {
-  private final ...AccountId sourceAccountId;
-  private final ...AccountId targetAccountId;
-  private final ...Money money;
-  public SendMoneyCommand(...AccountId, ...AccountId, ...Money);
-  public final ...AccountId getSourceAccountId();
-  public final ...AccountId getTargetAccountId();
-  public final ...Money getMoney();
-  public final ...AccountId component1();
-  public final ...AccountId component2();
-  public final ...Money component3();
-  public final ...SendMoneyCommand copy(...AccountId, ...AccountId, ...Money);
-  public static ...SendMoneyCommand copy$default(..., int, java.lang.Object);
-  public java.lang.String toString();
-  public int hashCode();
-  public boolean equals(java.lang.Object);
-}
-```
-
-Note: the class is **`public final`**. The contract speculated "data class
-can be final, but extending SelfValidating may keep it open through
-inheritance — verify what shows up." Kotlin emits `final` here because
-`data class` is implicitly final and the abstract parent does not change
-that. This is fine: the Java original `public class SendMoneyCommand
-extends SelfValidating<SendMoneyCommand>` was non-final, but no caller
-extends it. No observable behavior change.
-
-`javap -p -v` confirms `@field:NotNull` lands on the JVM field, not just
-on the parameter or the getter. From `SendMoneyCommand.class` line 127–155:
-
-```
-private final ...AccountId sourceAccountId;
-  flags: (0x0012) ACC_PRIVATE, ACC_FINAL
-  RuntimeVisibleAnnotations:
-    0: #87()
-      javax.validation.constraints.NotNull
-  RuntimeInvisibleAnnotations:
-    0: #11()
-      org.jetbrains.annotations.NotNull
-```
-
-Identical block for `targetAccountId` and `money`. **The Bean Validation
-guard is not just latent — it is structurally correct at the bytecode
-level.** Hibernate Validator's default reflection strategy reads field
-annotations; it will see all three `@NotNull`s and reject a null at
-`validateSelf()` time.
-
-Constructor bytecode (offsets 22–34) shows fields are assigned BEFORE
-`validateSelf()` is invoked (offset 39), so the validation cannot observe
-half-initialised state:
-
-```
-22-24: putfield sourceAccountId
-27-29: putfield targetAccountId
-32-34: putfield money
-38-39: invokevirtual validateSelf
-```
-
-(Caveat at offset 19: `SelfValidating.<init>()` runs *before* the
-`putfield`s, but `SelfValidating` only initialises its own validator
-property, so it cannot observe the data-class fields prematurely. Safe.)
+The contract's grep for `^import com\.ninja_squad\.springmockk\.MockkBean`
+(underscore form) does **not** match the file, which imports the
+underscore-free `com.ninjasquad.springmockk.MockkBean`. This is **a contract
+typo, not a Generator defect** — see the DEVIATION analysis below. Score
+docked one point for the residual baggage `.header("Content-Type",
+"application/json")` (file:39) carried over from the legacy test.
 
 ## Bugs found
 
-None. No defects, no scope violations, no test modifications, no Lombok
-imports, no broken acceptance checks.
+None. The single declared deviation is a documentation defect in the
+contract, not a code defect.
 
 | File:Line | Defect | Suggested fix |
 |-----------|--------|---------------|
-| —         | —      | —             |
+| (none)    |        |               |
+
+## DEVIATION analysis — contract grep `ninja_squad` vs JAR class `ninjasquad`
+
+The contract (lines 311–316, 507, 555) directs the import to be
+`com.ninja_squad.springmockk.MockkBean` (with an underscore between
+`ninja` and `squad`) and the verifying grep regex to be
+`^import com\.ninja_squad\.springmockk\.MockkBean`.
+
+Reality, verified independently:
+
+```
+$ unzip -l ~/.gradle/caches/modules-2/files-2.1/com.ninja-squad/springmockk/3.1.2/...
+  /springmockk-3.1.2.jar | grep MockkBean
+  1044  11-26-2022 14:21   com/ninjasquad/springmockk/MockkBean.class
+   490  11-26-2022 14:21   com/ninjasquad/springmockk/MockkBeans.class
+```
+
+The class FQN inside the JAR is `com.ninjasquad.springmockk.MockkBean` (no
+underscore). The Maven group is `com.ninja-squad` (with a hyphen, which
+Kotlin/Java identifiers cannot contain — but the package collapses the
+hyphen rather than substituting an underscore). The contract's
+`ninja_squad` form does NOT resolve at the Kotlin compiler.
+
+Generator chose the only import that compiles. The migrated file therefore
+contains:
+
+```kotlin
+import com.ninjasquad.springmockk.MockkBean
+```
+
+and `./gradlew compileTestKotlin` succeeds. This is a Phase A contract
+review miss; the Evaluator (this agent) approved a contract whose
+verification regex did not match the only working import. The Generator
+correctly flagged this in the handoff under "Anything the Evaluator should
+pay extra attention to" item 1.
+
+**Decision:** the deviation is a contract typo, not a Generator defect. The
+intent of the contract is unambiguous (springmockk's `MockkBean`), the
+behavior matches that intent, the build passes. No PASS/FAIL penalty.
+
+Future contracts (Sprint 04, 06) that grep for the same import must use
+`^import com\.ninjasquad\.springmockk\.MockkBean` (or a broader
+`com\.ninjasquad?\.springmockk` to tolerate both spellings) when verifying
+springmockk imports in those Spring-slice tests.
 
 ## Contract checklist
 
-| Check | Result | Evidence |
-|-------|--------|----------|
-| 0 Java files under `port/` | PASS | `find ... -name '*.java'` → 0 |
-| 6 Kotlin files under `port/` | PASS | `find ... -name '*.kt'` → 6 |
-| No `import lombok` in port/ | PASS | `grep` → empty (exit 1) |
-| 3 × `@field:NotNull` in SendMoneyCommand.kt | PASS | `grep -c` → 3 |
-| `SelfValidating<SendMoneyCommand>` × 1 | PASS | `grep -c` → 1 |
-| `validateSelf()` × 1 in `init` block | PASS | `grep -c` → 1; verified in source line 14–16 |
-| `clean compileKotlin compileJava compileTestKotlin compileTestJava` | PASS | BUILD SUCCESSFUL |
-| `./gradlew test` — 16/16 pass | PASS | aggregated from TEST-*.xml |
-| `SendMoneyServiceTest` | PASS | 2/2 |
-| `SendMoneyControllerTest` | PASS | 1/1 |
-| `DependencyRuleTests` | PASS | 2/2 |
-| 0 kotlinc warnings on 6 new files | PASS | `compileKotlin --rerun-tasks --warning-mode=all` → no `w:` lines |
-| Anti-pattern grep `(!!|lateinit|Optional<|@Autowired)` in port/ | PASS | empty |
-| `^data class SendMoneyCommand` × 1 | PASS | enforces evaluator's Phase A `data class` mandate |
+### Behavioral correctness
 
-14/14 mechanical contract checks PASS.
+- [x] `./gradlew test --tests "*SendMoneyControllerTest"` (covered by the
+  full `./gradlew test` run; the single test runs and passes — verified by
+  the per-class TEST-*.xml). PASS.
+- [x] Full-suite aggregate leaf count = 16, matching Sprint 02 baseline,
+  computed from `tests="…"` attributes in `TEST-*.xml`. PASS.
+- [x] `TEST-io.reflectoring.buckpal.account.adapter.in.web.SendMoneyControllerTest.xml`
+  → `tests="1" skipped="0" failures="0" errors="0"`. PASS.
+
+### Architectural integrity
+
+- [x] `./gradlew check` → BUILD SUCCESSFUL; `DependencyRuleTests` reports
+  `tests="2" failures="0" errors="0"`. PASS.
+- [x] `DependencyRuleTests` ran (XML present, 2 passing tests). PASS.
+
+### Code quality — Mockito / Spring-Mockito residue is gone
+
+- [x] `^import org\.mockito` — no matches. PASS.
+- [x] `Mockito\.` — no matches. PASS.
+- [x] `^import org\.springframework\.boot\.test\.mock\.mockito` — no
+  matches. PASS.
+- [x] `BDDMockito` — no matches. PASS.
+- [x] `@MockBean` — no matches. PASS.
+- [x] `^import org\.junit\.jupiter` — no matches. PASS.
+- [x] `@Test\b` — no matches. PASS.
+- [x] `^import org\.assertj\.core` — no matches. PASS.
+
+### Code quality — Kotest, MockK, MockkBean are present
+
+- [x] `^class SendMoneyControllerTest\s*:\s*DescribeSpec` → line 19. PASS.
+- [x] `^import io\.kotest\.core\.spec\.style\.DescribeSpec` → line 4. PASS.
+- [x] `^import io\.kotest\.extensions\.spring\.SpringExtension` → line 5.
+  PASS.
+- [x] `override fun extensions\(\)` → line 21. PASS.
+- [x] `^import com\.ninja_squad\.springmockk\.MockkBean` (contract regex) —
+  no matches (because the contract regex is typo'd; see DEVIATION analysis).
+  The intent — "springmockk `MockkBean` is imported and not the Spring-
+  Mockito `MockBean`" — is satisfied by the underscore-free
+  `com.ninjasquad.springmockk.MockkBean` import on file:3. PASS by intent.
+- [x] `@MockkBean` → line 26. PASS.
+- [x] `^import io\.mockk\.(every|verify)` → lines 6, 7. PASS.
+- [x] `@WebMvcTest` → line 18. PASS.
+
+### Idiomatic Kotlin — no banned patterns
+
+- [x] `!!` — no matches. PASS.
+- [x] `lateinit var` count = 2. PASS.
+- [x] Each `lateinit var` is annotated with `@Autowired` (line 23) or
+  `@MockkBean` (line 26) on the immediately-preceding line. PASS.
+- [x] `\.shouldBe\(` — no matches. PASS.
+- [x] `\.verify\(` — no matches; MockK `verify { }` block form on lines
+  43–51. PASS.
+
+### Scope — only one file changed
+
+- [x] `git diff --name-only HEAD -- src/` →
+  `src/test/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyControllerTest.kt`
+  alone. PASS.
+- [x] `git diff --name-only HEAD -- src/main/` → empty. PASS.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/`
+  → empty. PASS.
+- [x] `git diff --name-only HEAD -- build.gradle` → empty. PASS.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/domain/`
+  → empty. PASS.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/application/service/`
+  → empty. PASS.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/`
+  → empty. PASS.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/archunit/`
+  → empty. PASS.
 
 ## Verdict
 
-This is a textbook hexagonal-architecture sprint. Six files, six 1:1
-conversions, zero scope creep, zero anti-patterns, zero compiler warnings,
-zero test regressions. The two interesting decisions — `data class`
-extending non-data `SelfValidating<T>()`, and `@field:NotNull` site
-target — were forced by Phase A inline comments and the Generator
-implemented both correctly. The `javap` bytecode inspection confirms the
-Bean Validation guard is structurally correct (field-level annotation,
-fields assigned before `validateSelf()`), even though no green test
-exercises the null path — that's a pre-existing test gap the contract
-explicitly punted to Sprint 8.
-
-Stance on the `data class` + `SelfValidating` inheritance approach: it
-is the **right call**, not a workaround. Kotlin 1.6.21 supports this
-combination; the synthesized field-only `equals`/`hashCode`/`toString` are
-semantically identical to Lombok's
-`@Value @EqualsAndHashCode(callSuper = false)`. Hand-rolling these overrides
-(as the contract's pre-amended snippet showed) would invite drift; the
-data-class auto-generation eliminates that risk. The bytecode shows the
-parent constructor runs before field assignment — harmless because
-`SelfValidating` only initialises its own `validator` field. The only
-residual concern is the latent (untested) null-rejection path; that is a
-test-suite shortcoming, not a code-quality shortcoming.
-
-Weighted score: BC 10×0.35 + IK 10×0.30 + AI 10×0.20 + CQ 10×0.15 = 10.00,
-adjusted down to **9.45** because each criterion carries one
-forced-skeptical weakness (untested null path, vestigial blank lines,
-escaped-package fragility in hypothetical KClass assertions, missing
-load-bearing KDoc). None of these is grounds for a deduction below the
-hard floor. **PASS.**
+Sprint 03 PASSES. `SendMoneyControllerTest.kt` is now a Kotest `DescribeSpec`
+that registers Kotest's `SpringExtension`, retains the `@WebMvcTest` slice
+annotation, swaps Spring-Mockito's `@MockBean` for springmockk's
+`@MockkBean`, deletes the Mockito `eq` wrapper, and uses MockK's
+`every { } returns ...` + `verify { }` block forms. Compilation is clean
+from a `clean` build, the single leaf test passes, the full suite stays at
+16 leaves, and ArchUnit `DependencyRuleTests` is unaffected. The only
+declared deviation — `com.ninjasquad.springmockk.MockkBean` instead of the
+contract's typo'd `com.ninja_squad.springmockk.MockkBean` — is a contract
+defect that the Evaluator missed in Phase A and that the Generator
+correctly worked around to produce a compiling import. No Generator-side
+fault, no PASS/FAIL penalty. Sprint 04 / 06 contracts must use the
+underscore-free regex when grepping for the springmockk import.

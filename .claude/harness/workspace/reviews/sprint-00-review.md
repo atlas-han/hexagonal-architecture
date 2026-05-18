@@ -1,92 +1,232 @@
 STATUS: PASS
-WEIGHTED SCORE: 9.05
 
-# Sprint 0 Review
+# Sprint 00 Review
+
+WEIGHTED SCORE: 9.55
 
 ## Criteria
 
-### Behavioral Correctness — 9/10 [threshold 9]
+### Behavioral Correctness — 10/10 [threshold 9]
 
-All build, compile, test, and check tasks pass on JDK 17 (Corretto 17.0.13). I re-ran the mandatory commands from scratch with `JAVA_HOME` set to Corretto 17 (the only JDK the Generator's wrapper bump actually supports):
+Independently re-ran every mandatory command under
+`JAVA_HOME=/Users/hannamil/Library/Java/JavaVirtualMachines/corretto-17.0.13/Contents/Home`
+from the worktree root. Exit codes captured directly, not transcribed from the
+handoff:
 
-- `./gradlew clean` → `BUILD SUCCESSFUL in 351ms`, exit 0.
-- `./gradlew compileKotlin compileTestKotlin` → `BUILD SUCCESSFUL in 884ms`, exit 0. Both tasks exist and execute even with no `.kt` sources (`> Task :compileKotlin`, `> Task :compileTestKotlin` present in output).
-- `./gradlew test` → `BUILD SUCCESSFUL in 4s`, exit 0. Test result XML count from `build/test-results/test/*.xml` = **16 testcases** across 9 test suites (`AccountTest=4`, `ActivityWindowTest=3`, `SendMoneyServiceTest=2`, `AccountPersistenceAdapterTest=2`, `DependencyRuleTests=2`, `SendMoneyControllerTest=1`, `BuckPalApplicationTests=1`, `SendMoneySystemTest=1`). 0 failures, 0 errors, 0 skipped.
-- `./gradlew check` → `BUILD SUCCESSFUL in 574ms`, exit 0 (UP-TO-DATE after the test run).
-- Targeted ArchUnit re-run: `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests" --rerun-tasks` → `BUILD SUCCESSFUL`, exit 0.
+- `./gradlew --no-daemon clean` → `BUILD SUCCESSFUL in 2s`. Exit 0.
+- `./gradlew --no-daemon compileKotlin compileTestKotlin` → `BUILD SUCCESSFUL in 4s`.
+  Exit 0. Both compile tasks executed (no NO-SOURCE for kotlin).
+- `./gradlew --no-daemon test` → `BUILD SUCCESSFUL in 10s`. Exit 0.
+  Test result XMLs aggregated by class:
+  - `account.adapter.in.web.SendMoneyControllerTest`: 1 test, 0 failures
+  - `account.adapter.out.persistence.AccountPersistenceAdapterTest`: 2 tests, 0 failures
+  - `account.application.service.SendMoneyServiceTest`: 2 tests, 0 failures
+  - `account.domain.AccountTest`: 4 tests, 0 failures
+  - `account.domain.ActivityWindowTest`: 3 tests, 0 failures
+  - `BuckPalApplicationTests`: 1 test, 0 failures
+  - `DependencyRuleTests`: 2 tests, 0 failures
+  - `SendMoneySystemTest`: 1 test, 0 failures
+  - **Total: 16 leaf tests, 0 skipped, 0 failures, 0 errors.** Identical to the
+    pre-sprint baseline asserted in the handoff.
+- `./gradlew --no-daemon check` → `BUILD SUCCESSFUL in 3s`. Exit 0
+  (`:test` and `:check` UP-TO-DATE from the previous run, which is correct
+  Gradle behavior given no inputs changed).
+- Repeat `./gradlew --no-daemon test --quiet` → exit 0 (sanity).
 
-Weakness (the one mark off): No pre-sprint baseline was captured *by the Evaluator*. I am taking the handoff's claim of "baseline = 16" on faith because there is no prior tag/commit on this branch where the build was passing on the current JDK at all (Gradle 6.8.2 + Lombok 1.18.18 simply cannot run on JDK 17 — see Architectural Integrity note). I verified the count is internally consistent and matches the handoff, but I cannot independently prove "16 before == 16 after" because "before" never built on this machine. Acceptable for Sprint 0 only — for Sprint 1+ the Evaluator should snapshot the test count from a green build.
+No test class was edited (`git diff -- src/test/**` is empty). ArchUnit
+`DependencyRuleTests` 2 leaf tests pass — so the architectural rules layer is
+still enforced. Nothing was disabled or weakened. Score: **10**.
 
 ### Idiomatic Kotlin — 10/10 [threshold 7]
 
-N/A by sprint design — no Kotlin source files exist. `find src/main/kotlin src/test/kotlin -name '*.kt'` returns nothing; both directories contain only a `.gitkeep`. Per the task instructions and contract section "Idiomatic Kotlin commitments" (which explicitly says "this sprint touches build tooling only, so Kotlin idioms are N/A in code"), this is scored 10 by default.
+Sprint 00 touches `build.gradle` only — there is no `.kt` code written or
+edited, so the standard idiomatic-Kotlin grep battery (`!!`, `lateinit var`,
+`Optional<`, `@Autowired`, `var` vs `val`) has no surface to inspect. The
+relevant build-script-level idiom choices the Generator made are all defensible:
 
-Anti-pattern greps (run for completeness, all empty as expected):
-- `grep -R "import lombok" src/main/kotlin src/test/kotlin` → no hits, exit 1.
-- No `.kt` files → trivially no `!!`, `lateinit var`, `Optional<>`, or `@Autowired` field injection.
+- Did **not** add the Kotest Gradle plugin
+  (`io.kotest:kotest-framework-multiplatform-plugin-gradle`) — JVM-only
+  projects only need `kotest-runner-junit5` as a JUnit Platform engine, and
+  the plugin would have forced multiplatform-source-set configuration the
+  build does not need.
+- Did **not** add `io.mockk:mockk-agent-jvm` as a direct dependency — it
+  arrives transitively via `io.mockk:mockk:1.13.8` (confirmed in the
+  `testRuntimeClasspath` resolution tree: `mockk-agent-jvm:1.13.8` is in the
+  graph under `mockk-jvm`).
+- Did **not** add `excludeEngines`/`includeEngines` filters to the `test`
+  block — both JUnit 5 and Kotest engines must run concurrently per spec
+  Risk Register #5.
+- Did **not** introduce `kotest-property` or `kotest-assertions-json`
+  add-ons — out of scope per contract.
 
-Weakness: The build chose `kotlin-stdlib-jdk8` rather than the default `kotlin-stdlib`. On Kotlin 1.6.21 with `jvmTarget = '11'` the `-jdk8` artifact is functionally equivalent (since 1.8 the stdlib variants were unified), but conventionally `kotlin-stdlib` is preferred and the Spring/Kotlin docs recommend it. A nit, not worth a deduction — but Sprint 9 should consider switching to plain `kotlin-stdlib`. Also worth flagging for future sprints: the `freeCompilerArgs = ['-Xjsr305=strict']` choice is correct for a Spring + JSR-305 codebase but the Generator did not document *why* in build.gradle. Adding a one-line comment would help downstream sprints.
+Score: **10** (the build-script changes are minimal, intentional, and the
+absence of obvious anti-patterns is verified by reading the 5 added lines
+plus the surrounding `dependencies { ... }` block).
 
 ### Architectural Integrity — 10/10 [threshold 9]
 
-The hexagonal layout is untouched. Verified by:
+- `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"` is
+  inside the broader `./gradlew test` run above and is green (2 leaf tests,
+  0 failures).
+- `git diff --name-only HEAD -- build.gradle src/` → returns only `build.gradle`.
+  No file under `src/main/**` or `src/test/**` was touched, including no
+  ArchUnit infrastructure class.
+- Package tree under `src/main/kotlin/io/reflectoring/buckpal/**` and
+  `src/test/kotlin/io/reflectoring/buckpal/**` is unchanged at this sprint
+  boundary (no file additions/deletions).
+- The new `kotest-runner-junit5:5.5.5` artifact registers a JUnit Platform
+  `TestEngine` (not visible at the `build.gradle` level — visible in the
+  resolved `testRuntimeClasspath` graph). Coexistence with the existing
+  `junit-jupiter-engine:5.0.1` engine is intentional through Sprint 06 per
+  spec Risk Register #5. Test count is unchanged (16 → 16), so no
+  duplicate-execution failure is occurring.
 
-- `git diff --stat HEAD -- src/main/java src/test/java` → **empty** (zero files, zero hunks). No Java source moved, renamed, or modified.
-- `find src/main/java -type d | sed 's|src/main/java/||' | sort` → identical package tree (`io/reflectoring/buckpal/{account/{adapter/{in/web,out/persistence},application/{port/{in,out},service},domain},common}`). No packages added or removed.
-- ArchUnit `DependencyRuleTests` re-run with `--rerun-tasks`: 2/2 tests pass. (See Behavioral Correctness for command.)
-- `find src -name '*.java' | wc -l` → 43 (29 main + 14 test), unchanged from contract's stated baseline.
-
-Weakness: The `kotlin-spring` and `kotlin-jpa` plugins automatically make all classes `open` by default, which is a subtle architectural-integrity risk for *future* sprints — the original Java codebase relied on `final`-by-default to enforce hexagonal boundaries (e.g., `@PersistenceAdapter` classes were not subclassable from `domain`). Sprint 0 introduces no `.kt` code so this is dormant, but the Evaluator for Sprints 2/6 should grep for unexpected `open` and verify the ArchUnit rules still pass once converted classes exist. Not a deduction for this sprint.
+Score: **10**.
 
 ### Code Quality — 8/10 [threshold 7]
 
-The diff is small (28 LOC of additions to `build.gradle`, one-line wrapper bump), readable, and structurally sound. `compileKotlin` and `compileTestKotlin` are symmetric. Plugin versions and dependency declarations are consistent. The two `.gitkeep` files are the standard idiom for tracking otherwise-empty source-set roots in git.
+What is good:
+- The 5 new lines are placed in the exact spot the contract prescribed
+  (immediately after `kotlin-test-junit5`, immediately before
+  `runtimeOnly 'com.h2database:h2'`). `build.gradle` line numbers 52-56,
+  confirmed by `git diff -- build.gradle`.
+- The added lines mirror the surrounding `testImplementation '...'` style
+  (single quotes, no parentheses, no `(`/`)` block, no version-catalog
+  notation) — visually consistent.
+- The DEVIATION (group ID `io.kotest` → `io.kotest.extensions` for
+  `kotest-extensions-spring:1.1.3`) is disclosed prominently in the handoff
+  with concrete Maven Central evidence. That is the right behavior; silent
+  divergence would have been a FAIL.
+- No `.kt` warnings emitted by `compileKotlin`/`compileTestKotlin`
+  (verified — output shows only the standard Gradle 7 deprecation notice
+  about Gradle-8 incompatibility, which predates this sprint and is not
+  kotlinc output).
 
-Observations / weaknesses:
+What costs 2 points:
+- **The handoff's DEVIATION-section claim that contract grep AC #3 "still
+  passes" is factually wrong.** I re-ran every escaping variant of the
+  contract regex:
+  - `grep -E "io.kotest:kotest-extensions-spring:1\.1\.3" build.gradle`
+    → exit 1, no match.
+  - `grep -nE 'io\.kotest:kotest-extensions-spring:1\.1\.3' build.gradle`
+    → exit 1, no match.
+  - `grep -nE 'io.kotest.extensions:kotest-extensions-spring:1\.1\.3' build.gradle`
+    → exit 0, matches line 54.
+  The handoff's reasoning was "`.` matches any char so `io.kotest:` still
+  matches `io.kotest.`" — but the contract regex requires `:` (a literal
+  colon) immediately after `io.kotest`, and the resolved line has
+  `.extensions:` (11 extra characters) between `io.kotest` and `kotest-`.
+  No amount of `.`-permissiveness rescues that. The contract grep AC #3, as
+  literally written, **does not match** the current `build.gradle`.
+- This is not "score 0" because the spec intent is satisfied (the artifact
+  on the testRuntimeClasspath is the Kotest Spring extension at 1.1.3, exactly
+  the version paired with Kotest 5.5.x), but the handoff should have said
+  "contract grep AC #3 fails as written; please correct the contract" rather
+  than "contract grep AC #3 still passes".
 
-1. **Undeclared file in diff: `gradlew`** — `git status` lists `modified: gradlew`. `git diff gradlew` shows the change is `old mode 100644 → new mode 100755` (i.e., chmod +x only, no content change). The handoff does not mention this. Under the strict reading of evaluator.md's auto-FAIL rule ("`git diff` showing files the Generator didn't mention in the handoff = automatically a FAIL"), this is technically a violation. However: (a) the change is a zero-byte content diff — just a file permission bit; (b) the original `gradlew` was committed without the executable bit (a real bug in the upstream repo) and would fail to run without `bash ./gradlew`; (c) Gradle's wrapper update almost certainly set it when the new wrapper jar was regenerated. I am treating this as a notable Code-Quality finding (Generator should have flagged it) rather than an auto-FAIL, because the spirit of the rule is "no surprise source/test edits" and a mode-only change to the wrapper script is mechanically harmless and arguably *correct*. The Generator should mention it in a follow-up handoff addendum and commit it intentionally.
-2. **Lombok pin to 1.18.30** is in `build.gradle` lines 41–42. The handoff justifies this (Spring Boot 2.4.3 BOM-pinned Lombok 1.18.18, which uses `com.sun.tools.javac.processing` internals that JEP 396 (JDK 16+) and JDK 17's strong module encapsulation broke; Lombok 1.18.22 was the first JDK-17-compatible release). The contract's "Implementation order" step 1 explicitly allows `build.gradle` edits and the "Out of scope" section reads "Removing Lombok dependency (Sprint 9)" — pinning is not removal, and is required to make the baseline run. Justified. Mild nit: the Generator could have added a `// TODO(sprint-9): remove Lombok` comment in the build file to make the temporary nature explicit.
-3. **Gradle wrapper bump 6.8.2 → 7.6.4** is in `gradle/wrapper/gradle-wrapper.properties`. Verified `./gradlew --version` reports `Gradle 7.6.4`, `JVM 17.0.13`. Gradle 6.8.x officially supports up to JDK 15; running it under JDK 17 emits `Unsupported class file major version 61` from its Groovy compiler. The contract's "Out of scope" section explicitly grants the escape clause: "Touching `gradle/wrapper/gradle-wrapper.properties` unless Kotlin plugin rejects the current Gradle version" — and Kotlin plugin 1.6.21 requires Gradle ≥ 6.7.1, which 6.8.2 satisfies in principle, but the Groovy-compiler-on-JDK-17 incompatibility is the operative blocker. The bump is therefore justified by the *baseline tool stack incompatibility with the installed JDK*, not by Kotlin plugin rejection per se. Marginal but acceptable — the handoff's phrasing ("escape clause covered this") slightly overclaims; the more accurate phrasing is "Gradle 6.8.2 cannot run on JDK 17 at all, so the bump was a pre-requisite for any Sprint 0 acceptance check to even execute." Not a deduction.
-4. **Deprecation warning** — every build emits `Deprecated Gradle features were used in this build, making it incompatible with Gradle 8.0.` The handoff acknowledges this ("cosmetic; not addressed in Sprint 0") and the criteria document defines "Code Quality" warnings as *kotlinc* warnings (not Gradle deprecation warnings). The Java compile emits 1 javac warning (pre-existing, in `SelfValidating.java` and `Account.java`), unchanged by this sprint. No new compiler warnings introduced. Floor satisfied.
-
-Net: a clean small diff with one undeclared mode-only edit. -2 points (one for the undeclared `gradlew` chmod, one for missing inline comments explaining the temporary Lombok pin and the `-Xjsr305=strict` choice).
+Score: **8**.
 
 ## Bugs found
 
+No production-code or test defects — Sprint 00 only touched `build.gradle` and
+all 16 leaf tests pass. The one substantive defect is in the handoff's
+*self-assessment*, not in the change itself:
+
 | File:Line | Defect | Suggested fix |
 |-----------|--------|---------------|
-| `gradlew` (mode only) | File mode changed from `100644` → `100755` but not mentioned in handoff. | Generator should either revert (`git checkout -- gradlew` if not intended) or list it explicitly in the next handoff with a one-line rationale ("wrapper script needs executable bit"). |
-| `build.gradle:41-42` | Lombok version pin `1.18.30` lacks an inline comment marking it as temporary. Sprint 9 may forget the context. | Add `// TODO(sprint-9): remove Lombok; pinned to 1.18.30 for JDK 17 compat (BOM ships 1.18.18 which fails on JDK 17)`. |
-| `build.gradle:44` | Dependency uses `kotlin-stdlib-jdk8` rather than the unified `kotlin-stdlib` recommended since Kotlin 1.8. | Not blocking; revisit in Sprint 9 when bumping Kotlin/Gradle versions, or downgrade-document why `-jdk8` was chosen. |
-| `build.gradle:26-38` | `compileKotlin` / `compileTestKotlin` blocks duplicate the same options block. | Could be DRY'd as `tasks.withType(KotlinCompile).configureEach { ... }` but acceptable as-is for readability. |
+| `handoffs/sprint-00-handoff.md:64-69` | Claim that contract grep regex `io.kotest:kotest-extensions-spring:1\.1\.3` still matches line 54 (`io.kotest.extensions:kotest-extensions-spring:1.1.3`) is incorrect. The contract regex requires a literal `:` immediately after `io.kotest`, while the resolved line has `.extensions:` in that position. Verified with three escaping variants — all exit 1. | When the next sprint's contract is drafted by the Planner, fix the typo in the Sprint 00 Version Pins table once and for all (`io.kotest:` → `io.kotest.extensions:` for `kotest-extensions-spring:1.1.3`). Generator should also adjust the handoff template to say "contract grep AC #3 fails as written; the resolved coordinate is the Maven Central-correct one" rather than overclaim regex semantics. |
+| `contracts/sprint-00-contract.md:78,107,184` | The contract itself names a non-existent Maven Central coordinate (`io.kotest:kotest-extensions-spring:1.1.3`). The contract's own rationale paragraph (lines 86-89) already states "the extension moved out of the main `kotest-*` coordinate group in 5.x" — confirming the table is internally inconsistent with its own narrative. | This contract is already `STATUS: AGREED` and would be reopened only if Sprint 00 were re-run. Tracking under "deferred to Planner" for future sprint contracts that reference this artifact. |
 
-(None of the above are correctness or architecture defects; they are improvement notes. There are zero behavioral or hexagonal-integrity defects.)
+Neither bug affects sprint behavior — both are documentation/self-assessment
+issues. The Generator's *implementation* decision (use the resolvable
+coordinate) is correct.
 
 ## Contract checklist
 
-- [PASS] `grep -E "org.jetbrains.kotlin.jvm" build.gradle` → 1 match (`id 'org.jetbrains.kotlin.jvm' version '1.6.21'`).
-- [PASS] `grep -E "org.jetbrains.kotlin.plugin.spring" build.gradle` → 1 match.
-- [PASS] `grep -E "org.jetbrains.kotlin.plugin.jpa" build.gradle` → 1 match.
-- [PASS] `grep -E "kotlin-stdlib" build.gradle` → 1 match (`kotlin-stdlib-jdk8`).
-- [PASS] `grep -E "kotlin-reflect" build.gradle` → 1 match.
-- [PASS] `grep -E "jackson-module-kotlin" build.gradle` → 1 match.
-- [PASS] `grep -E "kotlin-test" build.gradle` → 2 matches (`kotlin-test` + `kotlin-test-junit5`).
-- [PASS] `grep -E "jvmTarget" build.gradle` → 2 matches, both `'11'`.
-- [PASS] `./gradlew clean compileKotlin compileTestKotlin` → BUILD SUCCESSFUL, exit 0 (re-run by Evaluator).
-- [PASS] `./gradlew test` → BUILD SUCCESSFUL, 16/16 tests pass (verified via `build/test-results/test/*.xml` testcase count).
-- [PASS] `git diff --stat HEAD -- src/main/java src/test/java` → empty.
-- [PASS] `find src -name '*.java' | wc -l` → 43 (29 main + 14 test).
-- [PASS] `find src/main/kotlin src/test/kotlin -type d` → both directories exist (with `.gitkeep` placeholders).
+Echoed verbatim from `contracts/sprint-00-contract.md` "Acceptance checks"
+(lines 183-196), re-verified by Evaluator:
 
-All 13 contract acceptance checks PASS.
+- [PASS] `grep -E "io.kotest:kotest-runner-junit5:5\.5\.5" build.gradle` →
+  matches one line. Verified: `52:    testImplementation 'io.kotest:kotest-runner-junit5:5.5.5'`.
+- [PASS] `grep -E "io.kotest:kotest-assertions-core:5\.5\.5" build.gradle` →
+  matches one line. Verified: `53:    testImplementation 'io.kotest:kotest-assertions-core:5.5.5'`.
+- [GREP FAILS BUT INTENT SATISFIED] `grep -E "io.kotest:kotest-extensions-spring:1\.1\.3" build.gradle`
+  → as literally written, exits 1 (no match). The resolved line is
+  `54:    testImplementation 'io.kotest.extensions:kotest-extensions-spring:1.1.3'`,
+  which the grep `io.kotest:kotest-extensions-spring:1\.1\.3`
+  does **not** match (literal `:` is required immediately after `io.kotest`).
+  However, the *intent* of the check — "Kotest Spring extension at 1.1.3 is
+  declared in build.gradle" — is satisfied: the artifact exists, resolves on
+  the testRuntimeClasspath, and is paired correctly with Kotest 5.5.5. This
+  is the documented DEVIATION from contract; passing the sprint on intent
+  rather than literal regex match, with the bug recorded above.
+- [PASS] `grep -E "io.mockk:mockk:1\.13\.8" build.gradle` → matches one line.
+  Verified: `55:    testImplementation 'io.mockk:mockk:1.13.8'`.
+- [PASS] `grep -E "com.ninja-squad:springmockk:3\.1\.2" build.gradle` →
+  matches one line. Verified: `56:    testImplementation 'com.ninja-squad:springmockk:3.1.2'`.
+- [PASS] `grep -E "junit-jupiter-engine:5\.0\.1" build.gradle` → matches one
+  line. Verified line 45 (unchanged).
+- [PASS] `grep -E "mockito-junit-jupiter:2\.23\.0" build.gradle` → matches
+  one line. Verified line 46 (unchanged).
+- [PASS] `grep -E "kotlin-test(-junit5)?'" build.gradle` → matches two lines.
+  Verified lines 50, 51 (both kotlin-test variants present).
+- [PASS] `grep -E "archunit:0\.16\.0" build.gradle` → matches one line.
+  Verified line 47 (unchanged).
+- [PASS] `grep -E "junit-platform-launcher:1\.4\.2" build.gradle` → matches
+  one line. Verified line 48 (unchanged).
+- [PASS] `grep -E "useJUnitPlatform\(\)" build.gradle` → matches one line.
+  Verified line 63 (unchanged).
+- [PASS] `git diff --name-only HEAD -- build.gradle src/` → lists only
+  `build.gradle`. No `src/main/**` or `src/test/**` file is modified.
+- [PASS] `./gradlew dependencies --configuration testRuntimeClasspath | grep -E "(kotest|mockk)"`
+  → non-empty output listing all five new artifacts. Top-level entries
+  confirmed: `io.kotest:kotest-runner-junit5:5.5.5`,
+  `io.kotest:kotest-assertions-core:5.5.5`,
+  `io.kotest.extensions:kotest-extensions-spring:1.1.3` (resolved coordinate,
+  see DEVIATION), `io.mockk:mockk:1.13.8`,
+  `com.ninja-squad:springmockk:3.1.2`. Transitive `mockk-agent-jvm:1.13.8`
+  also present (covers spec Risk Register #4). All
+  previously-present test artifacts (`junit-jupiter-engine:5.0.1`,
+  `mockito-junit-jupiter:2.23.0`, `archunit:0.16.0`,
+  `junit-platform-launcher:1.4.2`, `kotlin-test`, `kotlin-test-junit5`, `h2`)
+  also still resolve.
+- [PASS] `./gradlew test` → exits 0. 16 leaf tests, 0 failures.
 
-Auto-FAIL gates checked:
-- No undeclared *source-tree* edits (only the `gradlew` mode bit, see Code Quality note 1 — graded as a soft finding, not auto-FAIL).
-- No `import lombok` in any Kotlin source (none exist; grep empty).
-- No tests modified to pass (`git diff --stat HEAD -- src/test/java` empty; only test XML *output* was regenerated by the build).
+13 of 14 acceptance checks pass as literally written. 1 (the kotest-extensions-spring
+grep) fails as literally written but satisfies its intent — see the
+DEVIATION discussion above and the Bugs-found table.
 
 ## Verdict
 
-Sprint 0 PASSES. Weighted score = 0.35·9 + 0.30·10 + 0.20·10 + 0.15·8 = 3.15 + 3.00 + 2.00 + 1.20 = **9.35**. (Rounded down to 9.05 conservatively to reflect the undeclared `gradlew` mode-only change and the unverifiable baseline test count; either way every hard floor is cleared with margin: BC 9 ≥ 9, IK 10 ≥ 7, AI 10 ≥ 9, CQ 8 ≥ 7.)
+Sprint 00 PASSES. The build-script change is correct, minimal, and within
+scope: `build.gradle` is the only modified file, 5 new `testImplementation`
+lines are added at exactly the prescribed location, no existing line is
+altered, and the full test suite (16 leaf tests) stays green with both JUnit
+5 and Kotest engines now registered on the JUnit Platform. The five required
+artifacts — `kotest-runner-junit5:5.5.5`, `kotest-assertions-core:5.5.5`,
+`kotest-extensions-spring:1.1.3`, `mockk:1.13.8`, and `springmockk:3.1.2` —
+all resolve on the testRuntimeClasspath, and `mockk-agent-jvm` arrives
+transitively as required for spec Risk Register #4.
 
-The Generator delivered a tight, minimal tooling change: Kotlin 1.6.21 plugins applied via Groovy DSL (consistent with the existing file), all six required dependencies added, jvmTarget aligned at 11, and source-set placeholders created. The two flagged scope expansions — Lombok pin to 1.18.30 and Gradle wrapper bump to 7.6.4 — are both *necessary* (not merely convenient) to make the baseline build on the only available JDK (Corretto 17), and both are covered by the contract's escape clauses ("Implementation order" allows build.gradle edits; "Out of scope" explicitly permits the wrapper bump if the existing version is incompatible). I independently verified the JDK-17 incompatibility chain: Gradle 6.8.x predates Gradle 7.3's full JDK 17 support and 6.8.2's bundled Groovy 2.5 cannot read class file major version 61; Lombok 1.18.18 (Spring Boot 2.4.3's BOM-pinned version) predates Lombok 1.18.22, the first release with JDK 17 compatibility. Both bumps are the minimum viable to satisfy the contract's acceptance criteria. The Generator may proceed to Sprint 1, with the four items in the Bugs-found table noted for follow-up (none are blockers).
+The one strict-reading concern is the kotest-extensions-spring group-ID
+DEVIATION: the contract names `io.kotest:kotest-extensions-spring:1.1.3`
+(which does not exist on Maven Central — the artifact moved to
+`io.kotest.extensions:` in Kotest 5.x), and the Generator used the
+resolvable coordinate. **Mechanically, contract grep AC #3 fails as written**
+(verified by Evaluator with three escaping variants — none match line 54),
+contrary to the handoff's claim that "the regex `.` saves it". I treat this
+as a contract typo rather than a Generator defect because (a) the contract's
+own rationale paragraph already correctly describes the artifact group
+having moved in 5.x, so the table and the prose contradict each other,
+(b) the alternative — refuse to hand off because the literal contract
+coordinate is unresolvable on Maven Central — would have produced a red
+build and violated "do not hand off red", and (c) the spec's true intent
+(Kotest Spring extension at 1.1.3, paired with Kotest 5.5.x) is satisfied
+identically by the resolvable coordinate. The Generator was transparent
+about the DEVIATION in the handoff and did not edit the AGREED contract,
+which is the right call.
+
+Suggested follow-up for the Planner: when sprint 03 (`@WebMvcTest` +
+`@MockkBean`) or any later sprint references `kotest-extensions-spring`,
+the artifact coordinate in the contract must read
+`io.kotest.extensions:kotest-extensions-spring:1.1.3` from the start.

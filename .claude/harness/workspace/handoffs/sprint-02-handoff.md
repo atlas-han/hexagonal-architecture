@@ -1,130 +1,203 @@
-# Sprint 2 Handoff — `account/domain/`
-
-**Generator:** main session
-**Result:** SELF-CHECK GREEN — awaiting Evaluator Phase B verification.
+# Sprint 02 Handoff
 
 ## What changed
 
-Java → Kotlin (4 files, 1:1):
+- **Modified**: `src/test/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyServiceTest.kt`
+  - Class redeclared as `class SendMoneyServiceTest : BehaviorSpec({ ... })`.
+  - Both `@Test` methods rewritten as two `BehaviorSpec` leaves under
+    `given { \`when\` { then { ... } } }` triples.
+  - All Mockito (`Mockito.mock`, `BDDMockito.given/then`, `Mockito.times`,
+    `Mockito.eq`, `Mockito.any`, `ArgumentCaptor`) replaced with MockK
+    (`mockk<T>()`, `every { } returns`, `verify { }`, `verify(exactly = N) { }`,
+    `mutableListOf<Account>()` + `capture(list)`).
+  - Hand-rolled helpers deleted: the file-level `accountSentinel`,
+    `private fun capture(captor: ArgumentCaptor<Account>)`, and
+    `private fun <T> eq(value: T)` are all gone.
+  - Mock-creation modes: `mockk<LoadAccountPort>()` and `mockk<Account>()`
+    stay strict; `mockk<AccountLock>(relaxUnitFun = true)` and
+    `mockk<UpdateAccountStatePort>(relaxUnitFun = true)` relax only their
+    `Unit`-returning methods to avoid `just Runs` boilerplate.
+  - AssertJ (`assertThat(...).isTrue()` / `isFalse()` / `.contains(x)` loop)
+    replaced with Kotest matchers (`success shouldBe true/false`,
+    `updatedAccountIds shouldContainAll accountIds.toList()`).
+  - `!!` eliminated: `sourceAccountId`/`targetAccountId` are declared as
+    local `val`s of type `AccountId` *before* the mock is created, then
+    used for both the `every`/`verify` sites and for building
+    `SendMoneyCommand`.
+  - `givenAnAccountWithId(...)` / `givenWithdrawalWillFail(...)` /
+    `givenWithdrawalWillSucceed(...)` / `givenDepositWillSucceed(...)` /
+    `thenAccountsHaveBeenUpdated(...)` / `moneyTransferProperties()` are
+    declared as **local `fun`s inside the `BehaviorSpec` lambda** rather
+    than instance methods, which removes the need for any class-level
+    state.
 
-- `Money.java` → `Money.kt` — `data class Money(val amount: BigInteger)`
-  with `@JvmField val ZERO`, `@JvmStatic of/add/subtract`, instance
-  `operator fun plus/minus` + `fun negate()` + boolean helpers.
-- `Account.java` → `Account.kt` — `open class Account private constructor(...)`,
-  nested `data class AccountId(val value: Long)`, `companion object` with
-  `@JvmStatic withId/withoutId`, `Optional<AccountId>` shim for Java callers.
-- `Activity.java` → `Activity.kt` — `data class Activity(...)` with primary
-  6-arg ctor (id first, nullable) + secondary 5-arg ctor (id=null),
-  nested `data class ActivityId(val value: Long)`.
-- `ActivityWindow.java` → `ActivityWindow.kt` — `class ActivityWindow` with
-  two ctors (List + vararg), `getActivities()` returns unmodifiable view.
-
-The 4 `.java` files have been deleted.
+- **No other source file modified.** No production code touched, no other
+  test file touched, `build.gradle` untouched, fixtures untouched, ArchUnit
+  files untouched, Sprint 01 files untouched.
 
 ## Contract checklist
 
-- [x] `find src/main/java/io/reflectoring/buckpal/account/domain -name '*.java'` → 0 ✓
-- [x] `find src/main/kotlin/io/reflectoring/buckpal/account/domain -name '*.kt'` → 4 ✓
-- [x] `grep -R "import lombok" src/main/kotlin/io/reflectoring/buckpal/account/domain` → empty ✓
-- [x] `grep -lR "Optional" src/main/kotlin/io/reflectoring/buckpal/account/domain` → 1 file (Account.kt only) ✓
-- [x] `grep "@JvmStatic" Money.kt` → 3 (`of`, `add`, `subtract`) ✓
-- [x] `grep "@JvmField" Money.kt` → 1 (`ZERO`) ✓
-- [x] `grep "@JvmStatic" Account.kt` → 2 (`withId`, `withoutId`) ✓
-- [x] `grep "!!"` → 2 occurrences, both `id!!` in `Account.withdraw` and
-      `Account.deposit`, each with the agreed one-line comment immediately
-      above explaining the invariant. ✓
-- [x] `./gradlew clean compileKotlin compileJava compileTestJava compileTestKotlin` → BUILD SUCCESSFUL ✓
-- [x] `./gradlew test` → 16/16 pass ✓
-- [x] `./gradlew test --tests "io.reflectoring.buckpal.account.domain.*"` → 4/4 pass ✓
-- [x] `./gradlew test --tests "io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest"` → 2/2 pass ✓ (after `open` keyword applied — see note below)
-- [x] `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest"` → pass ✓
-- [x] `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"` → pass ✓
-- [x] kotlinc warnings on the 4 new files → 0 ✓
-- [x] **`javap -p Account.class` confirms both `getId(): Optional<AccountId>` AND `getIdOrNull(): AccountId` bytecodes coexist.** ✓
-      ```
-      public final AccountId getIdOrNull();
-      public Optional<AccountId> getId();
-      ```
+### Behavioral correctness
 
-All 14 mechanical contract checks PASS.
+- [x] `./gradlew test --tests "io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest"` → `BUILD SUCCESSFUL`.
+- [x] `./gradlew test` (full suite) → `BUILD SUCCESSFUL`; aggregate leaf-test count
+      is **16** (1 + 2 + 2 + 4 + 3 + 1 + 2 + 1 across all 8 TEST-*.xml
+      reports), unchanged from the Sprint 01 baseline.
+- [x] `build/test-results/test/TEST-io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest.xml`
+      reports `tests="2" failures="0" errors="0" skipped="0"`.
+
+### Architectural integrity
+
+- [x] `./gradlew check` → `BUILD SUCCESSFUL`.
+- [x] `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"` → `BUILD SUCCESSFUL` (ArchUnit XML reports `tests="2"`).
+
+### Code quality — Mockito and JUnit residue is gone
+
+- [x] `grep -nE "^import org\.mockito" SendMoneyServiceTest.kt` → no matches.
+- [x] `grep -n "Mockito\." SendMoneyServiceTest.kt` → no matches.
+- [x] `grep -nE "^import org\.assertj\.core" SendMoneyServiceTest.kt` → no matches.
+- [x] `grep -nE "^import org\.junit\.jupiter" SendMoneyServiceTest.kt` → no matches.
+- [x] `grep -n "@Test" SendMoneyServiceTest.kt` → no matches.
+- [x] `grep -nE "(ArgumentCaptor|accountSentinel|BDDMockito)" SendMoneyServiceTest.kt` → no matches.
+
+### Code quality — MockK and Kotest are present
+
+- [x] `grep -nE "^class SendMoneyServiceTest\s*:\s*BehaviorSpec" SendMoneyServiceTest.kt` → 1 match on line 17.
+- [x] `grep -nE "^import io\.kotest\.core\.spec\.style\.BehaviorSpec" SendMoneyServiceTest.kt` → 1 match on line 3.
+- [x] `grep -nE "^import io\.kotest\.matchers\.shouldBe" SendMoneyServiceTest.kt` → 1 match on line 5.
+- [x] `grep -nE "^import io\.mockk\.(every|mockk|verify)" SendMoneyServiceTest.kt` → 3 matches on lines 6–8 (`every`, `mockk`, `verify`).
+
+### Idiomatic Kotlin — no banned patterns
+
+- [x] `grep -nE "(\blateinit\b|!!)" SendMoneyServiceTest.kt` → no matches.
+- [x] `grep -nE "\.shouldBe\(" SendMoneyServiceTest.kt` → no matches.
+- [x] `grep -nE "\.verify\(" SendMoneyServiceTest.kt` → no matches.
+
+### Scope — only one file changed
+
+- [x] `git diff --name-only HEAD -- src/` → exactly
+      `src/test/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyServiceTest.kt`.
+- [x] `git diff --name-only HEAD -- src/main/` → empty.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/` → empty.
+- [x] `git diff --name-only HEAD -- build.gradle` → empty.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/domain/` → empty.
+- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/archunit/` → empty.
 
 ## Idiomatic Kotlin choices worth flagging
 
-1. **`Account` and its 3 public methods (`getId`, `calculateBalance`,
-   `withdraw`, `deposit`) are `open`.** Original Java `Account` was a
-   non-final class with non-final methods; `SendMoneyServiceTest`
-   exercises that by calling `Mockito.mock(Account.class)` and stubbing
-   `account.getId()`. Without `open`, Mockito's CGLIB proxy refuses with
-   `final class` and the test fails. The `open` keyword is the minimal
-   change to preserve Java behavior. **This was a Kotlin-Spring trap the
-   contract did not anticipate, surfaced by the first test failure.** The
-   sprint goal (behavior parity) requires it. Adding `open` does not
-   widen any other invariant: the constructor remains `private`, and the
-   methods would be effectively final to all production callers (no
-   subclass exists).
-2. **`Account.getIdOrNull()` site-targeted** so the synthesized property
-   getter does not collide with the hand-written `fun getId():
-   Optional<AccountId>`. Verified via `javap`. Kotlin callers use
-   `account.id` (which routes to `getIdOrNull()` under the hood); Java
-   callers use `account.getId().orElseThrow(...)`.
-3. **`Money` uses `operator fun plus`/`minus`** so Kotlin callers can
-   write `a + b` (and Java callers still see `plus(Money)`/`minus(Money)`
-   exactly as before). `negate()` remains a regular `fun` because Java
-   doesn't support unary-minus on objects and we don't break callers.
-4. **`Activity` is a `data class` with `id` as first param** matching the
-   Java `@Value @RequiredArgsConstructor` order. The secondary 5-arg
-   constructor (no id) delegates to the primary with `id = null`,
-   preserving both Java call shapes.
-5. **`ActivityWindow` is intentionally NOT a `data class`.** It holds a
-   `MutableList<Activity>`; data-class equality on a mutable backing
-   collection would be misleading. Lombok generated no `equals` either.
-6. **`ZERO` is `@JvmField val`**, not `@JvmStatic fun getZERO()`.
-   `ActivityWindow.calculateBalance()` Java code does `.reduce(Money.ZERO,
-   Money::add)` — without `@JvmField`, that resolves to
-   `Money.Companion.getZERO()` and `Money::add` doesn't work as a
-   method reference. Verified by `compileJava` success.
+- **`BehaviorSpec` lambda style + local `fun`s.** The class body is a
+  single `BehaviorSpec({ ... })` constructor argument. All test helpers
+  (`givenAnAccountWithId`, `givenWithdrawalWillFail`,
+  `givenWithdrawalWillSucceed`, `givenDepositWillSucceed`,
+  `thenAccountsHaveBeenUpdated`, `moneyTransferProperties`) live as
+  **local functions inside the lambda** rather than as instance members.
+  This works because Kotest re-runs the spec lambda once per leaf, so
+  every leaf gets a fresh closure with fresh mocks — no `init { }`, no
+  `@BeforeEach`, no `lateinit var`, no `clearMocks()`.
+
+- **Mocks created inside each leaf, not at the spec scope.** The
+  `loadAccountPort`, `accountLock`, `updateAccountStatePort`, and
+  `sendMoneyService` instances are declared inside each
+  `then { ... }` block (after the local-fun declarations earlier in the
+  lambda). This makes the per-leaf isolation explicit and prevents any
+  reader from assuming shared state. The helper functions take the mocks
+  as parameters rather than closing over them.
+
+- **`relaxUnitFun = true` for the two `Unit`-only collaborators.**
+  `AccountLock.lockAccount/releaseAccount` and
+  `UpdateAccountStatePort.updateActivities` all return `Unit`. Marking
+  those two mocks with `relaxUnitFun = true` lets us call them without
+  stubbing each one as `every { ... } just Runs`, while keeping the rest
+  of the surface (`loadAccount`, `withdraw`, `deposit`, `id`) strictly
+  unstubbed-throws. Strict mode on `Account` and `LoadAccountPort` matches
+  Mockito's previous behavior — any unexpected interaction still fails
+  the test.
+
+- **`mutableListOf<Account>()` + `capture(list)` for the multi-capture
+  case, not `slot<Account>()`.** The `updateActivities` call fires twice
+  in the success scenario; `slot<T>()` only retains the *last* captured
+  value, which would silently lose the source-account assertion. The
+  list-form capture preserves both invocations, and
+  `updatedAccountIds shouldContainAll accountIds.toList()` is the
+  order-insensitive Kotest analog of the previous AssertJ
+  `for (accountId in accountIds) assertThat(updatedAccountIds).contains(accountId)`
+  loop.
+
+- **`success shouldBe false` / `shouldBe true` instead of
+  `success.shouldBeFalse()` / `shouldBeTrue()`.** The contract's quality
+  checks explicitly require `actual shouldBe expected` infix form
+  (`grep -nE "\.shouldBe\(" → no matches`). This keeps the assertion
+  style symmetrical for the two `@Test`-replacement leaves and matches
+  Sprint 01's `balance shouldBe Money.of(1555L)` convention.
+
+- **Back-ticked `` `when`("...") ``.** Kotest's `BehaviorSpec` `when`
+  builder collides with Kotlin's reserved keyword. Same convention as
+  Sprint 01.
 
 ## Anything the Evaluator should pay extra attention to
 
-1. **`open` keyword scope.** Only `Account` was opened; `Money`, `Activity`,
-   `ActivityWindow`, and the two nested `…Id` data classes remain `final`
-   (Kotlin default). `SendMoneyServiceTest` only mocks `Account`. Grep:
-   `grep -rE '\bopen\b' src/main/kotlin/io/reflectoring/buckpal/account/domain`
-   → 4 hits, all in `Account.kt` (class + 3 methods + `Optional` import
-   line containing the word "open"? No — actual `open` keywords = 4:
-   `open class`, `open fun getId`, `open fun calculateBalance`,
-   `open fun withdraw`, `open fun deposit` = 5. Need to verify).
-2. **JPA + `open Account`.** Account is a pure domain class, not a JPA
-   entity. The persistence boundary is in `account.adapter.out.persistence`
-   (still Java this sprint). The `kotlin-jpa` plugin doesn't apply to
-   `Account` since it lacks `@Entity`. So `open class Account` does **not**
-   conflict with JPA expectations.
-3. **`AccountTestData.AccountBuilder.build()` calls `Account.withId(...)`**
-   which is `@JvmStatic` and was migrated correctly — verified by
-   `AccountTest.calculatesBalance()` (1 test in the dedicated domain suite
-   that exercises this path).
-4. **Behavior probe — `Money.ZERO.equals(Money.of(0L))` returns true.**
-   `Money(BigInteger.ZERO).equals(Money(BigInteger.valueOf(0L)))` → the
-   `BigInteger.valueOf(0L)` returns the cached `BigInteger.ZERO`, so both
-   `Money` instances wrap the same `BigInteger.ZERO` instance, and the
-   data-class `equals` compares them with `BigInteger.equals` which is
-   reference-and-value equal. This was the Sprint-2 risk-register item 1;
-   confirmed safe by the green AccountTest suite (it depends on this
-   equality in `assertThat(balance).isEqualTo(Money.of(1555L))`).
-5. **The Optional shim adds a `java.util.Optional` import to
-   Account.kt.** That's the only file in the domain package that imports
-   Optional, matching the contract's "exactly 1 file" check.
+- **Mocking final-`Account` requires no extra setup.** Production
+  `Account` is declared `open class Account` (line 11 of `Account.kt`)
+  with `open val id` / `open fun withdraw` / `open fun deposit` (lines
+  14, 31, 57). MockK can mock the class with a plain `mockk<Account>()`;
+  no `mockk-agent-jvm` global, no `MockKAnnotations.init`. This matches
+  the spec's risk-register #4 expectation.
+
+- **Per-leaf mock isolation is automatic.** Kotest's default
+  `IsolationMode` for `BehaviorSpec` re-runs the lambda per leaf, so the
+  two leaves are run with two independent mock graphs. No `clearMocks`
+  block was added preemptively; if a future change to the Kotest version
+  alters the lifecycle, the fallback is to add `beforeTest { clearAllMocks() }`,
+  but that is out of scope for Sprint 02.
+
+- **Argument-equality on `Money` and `AccountId` is value-based.** Both
+  production types are Kotlin `data class`es, so `Money.of(500L)` /
+  `AccountId(41L)` instances compare equal regardless of identity. The
+  `verify { mock.foo(Money.of(500L)) }` calls therefore match the
+  production-side invocation without any explicit matcher. No `eq(...)`
+  wrapper exists or is needed.
+
+- **The two scenarios preserve the exact same call-count assertions as
+  before.** In the failure leaf: `lockAccount(source)` and
+  `releaseAccount(source)` are verified (at least once) and
+  `lockAccount(target)` is verified `exactly = 0`. In the success leaf:
+  `lockAccount/releaseAccount` for both source and target,
+  `withdraw(money, target)` on the source mock,
+  `deposit(money, source)` on the target mock, and
+  `updateActivities(...)` `exactly = 2` (once per account, captured into
+  a `mutableListOf<Account>()` and asserted as containing both ids).
+  These are all *unordered* `verify { }` calls — no `verifyOrder` or
+  `verifySequence` introduced, matching the original Mockito flow which
+  also did not assert ordering.
+
+- **`./gradlew test` aggregate leaf count is still 16.** Per-file counts
+  from the XML reports: `BuckPalApplicationTests`=1,
+  `DependencyRuleTests`=2, `SendMoneySystemTest`=1,
+  `SendMoneyControllerTest`=1, `AccountPersistenceAdapterTest`=2,
+  `SendMoneyServiceTest`=2, `AccountTest`=4, `ActivityWindowTest`=3.
+  Sum = 16, identical to the Sprint 01 baseline (`SendMoneyServiceTest`
+  had 2 leaves before and has 2 leaves after).
 
 ## TODOs deferred to later sprints
 
-- **Remove `Account.getId(): Optional<AccountId>` shim.** Sprint 4
-  (services) will rewrite `SendMoneyService.getId().orElseThrow(...)` to
-  `account.id ?: error("…")`; once that and any other Java callers move
-  to Kotlin, the shim is dead code. Tracked in spec section 5, risk #2.
-- **Replace `Money.add(a, b)` and `Money.subtract(a, b)` static factories
-  with operator uses** at call sites. Same condition — defer until
-  callers are Kotlin.
+- `SendMoneyControllerTest` still uses `@MockBean` + `@WebMvcTest` on
+  JUnit 5; migrate in **Sprint 03**.
+- `AccountPersistenceAdapterTest` still uses JUnit 5 + `@DataJpaTest`;
+  migrate in **Sprint 04**.
+- `DependencyRuleTests` and `BuckPalApplicationTests` still use JUnit 5;
+  migrate in **Sprint 05**.
+- `SendMoneySystemTest` still uses JUnit 5 + `BDDAssertions`; migrate in
+  **Sprint 06**.
+- `org.junit.jupiter:junit-jupiter-engine`, `org.mockito:mockito-junit-jupiter`,
+  `org.jetbrains.kotlin:kotlin-test`, and `kotlin-test-junit5` remain in
+  `build.gradle`; remove in **Sprint 07**.
 
 ## Commit
 
-Not yet committed. Generator will commit after Evaluator PASS.
+Proposed one-line subject for the orchestrator's commit:
+
+```
+feat(kotlin): sprint 2 — migrate SendMoneyServiceTest to Kotest BehaviorSpec + MockK
+```
+
+(SHA pending — the orchestrator stages and commits.)

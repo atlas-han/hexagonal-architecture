@@ -1,441 +1,592 @@
 STATUS: AGREED
-// EVALUATOR: contract reviewed 2026-05-17. Status flipped to AGREED after the
-// inline edits below are folded in by the Generator at implementation time.
-// Generator: treat every `// EVALUATOR:` block in this file as binding —
-// they are part of the agreed contract, not suggestions.
 
-# Sprint 6 Contract — `account/adapter/out/persistence/`
+# Sprint 06 Contract — Migrate `SendMoneySystemTest` (full Spring Boot system test) to Kotest
 
-**Status:** DRAFT (awaiting Evaluator review)
-**Generator:** main session
-**Sprint goal (from spec):** Convert all 6 persistence files (highest-risk
-sprint due to JPA + Kotlin interactions).
+## Sprint goal (verbatim from spec)
+
+> Convert the end-to-end Spring Boot system test to a Kotest spec
+> (`DescribeSpec` or `FunSpec`) while keeping
+> `@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)` and the
+> `@Sql("SendMoneySystemTest.sql")` data load. Replace
+> `org.assertj.core.api.BDDAssertions.then` with Kotest's `shouldBe`.
 
 ## Files in scope
 
-Production (6 .java → 6 .kt):
+Only this **one** test file may be edited in Sprint 06. Anything outside
+this list — production code, ArchUnit infrastructure, the build script, the
+SQL resource, or any other test class — is off-limits.
 
-| Java file | Kotlin equivalent |
-|-----------|-------------------|
-| `account/adapter/out/persistence/AccountJpaEntity.java`         | `account/adapter/out/persistence/AccountJpaEntity.kt` |
-| `account/adapter/out/persistence/ActivityJpaEntity.java`        | `account/adapter/out/persistence/ActivityJpaEntity.kt` |
-| `account/adapter/out/persistence/AccountMapper.java`            | `account/adapter/out/persistence/AccountMapper.kt` |
-| `account/adapter/out/persistence/SpringDataAccountRepository.java` | `account/adapter/out/persistence/SpringDataAccountRepository.kt` |
-| `account/adapter/out/persistence/ActivityRepository.java`       | `account/adapter/out/persistence/ActivityRepository.kt` |
-| `account/adapter/out/persistence/AccountPersistenceAdapter.java`| `account/adapter/out/persistence/AccountPersistenceAdapter.kt` |
+- `src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
 
-Nothing else is touched. In particular:
-- `Account.kt`'s `getId(): Optional<AccountId>` shim is **NOT** removed —
-  `SendMoneyServiceTest.java` and `AccountPersistenceAdapterTest.java` are
-  still Java (Sprint 8) and rely on Sprint 2 / Sprint 4 decisions. The
-  shim stays. The new Kotlin mapper / adapter MUST use the nullable
-  `account.id` property (not `account.getId()`/`Optional`) to avoid
-  reintroducing `Optional<>` in this sprint's scope.
-- JPQL `@Query` strings reference the simple class name `ActivityJpaEntity`
-  — the Kotlin class MUST be named exactly that (no rename, no shortening).
-- The H2 schema is auto-generated from the entity fields (`hbm2ddl.auto =
-  create-drop` for the test profile). Column names are derived from
-  Hibernate's default camelCase → snake_case naming strategy
-  (`ownerAccountId` → `owner_account_id` etc.) — verified via the
-  SQL fixtures (`AccountPersistenceAdapterTest.sql`,
-  `SendMoneySystemTest.sql`) which use `owner_account_id`,
-  `source_account_id`, `target_account_id`. Kotlin property names MUST
-  remain `ownerAccountId`, `sourceAccountId`, `targetAccountId`,
-  `timestamp`, `amount`, `id` — verbatim, no rename.
+Files explicitly **not** in scope (read-only, Generator must not touch them):
+
+- `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql` —
+  spec out-of-scope: "do not edit". The SQL classpath resource is loaded
+  at runtime (either via `@Sql` annotation or via the `loadSql` helper
+  pattern from Sprint 04); its contents must not change.
+- All production code under `src/main/kotlin/**` — non-negotiable migration
+  invariant ("the production source tree under
+  `src/main/kotlin/io/reflectoring/buckpal/**` is not modified by any
+  sprint in this migration").
+- Every other test class already migrated in Sprints 01–05
+  (`AccountTest`, `ActivityWindowTest`, `SendMoneyServiceTest`,
+  `SendMoneyControllerTest`, `AccountPersistenceAdapterTest`,
+  `DependencyRuleTests`, `BuckPalApplicationTests`).
+- `src/test/kotlin/io/reflectoring/buckpal/common/AccountTestData.kt` and
+  `ActivityTestData.kt` — fixtures, untouched per spec.
+- Every file under `src/test/kotlin/io/reflectoring/buckpal/archunit/**`
+  (`HexagonalArchitecture`, `Adapters`, `ApplicationLayer`,
+  `ArchitectureElement`) — ArchUnit support types, not tests.
+- `build.gradle` — Sprint 00 wired Kotest + MockK + springmockk; Sprint 07
+  removes the legacy stack. This sprint is test-source-only.
+
+## Hard exit criteria (verbatim from spec)
+
+- Class extends a Kotest spec and registers Kotest's `SpringExtension`.
+- The `@SpringBootTest(... RANDOM_PORT)` annotation is preserved.
+- `@Sql("SendMoneySystemTest.sql")` is preserved on the leaf test (same
+  `@Sql` fallback strategy as Sprint 04 if needed).
+- The HTTP exchange via `TestRestTemplate` produces a 200 and balance
+  deltas of `-500` (source) / `+500` (target), asserted via Kotest
+  matchers.
+- No imports from `org.assertj.core.*` remain in this file.
+- `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"`
+  exits 0; the test launches a random port and round-trips through the
+  controller.
+- `./gradlew test` (full suite) exits 0.
+
+## Out of scope (verbatim from spec, plus additions)
+
+From spec:
+
+- `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql`.
+- Any production code.
+- Any other test file.
+
+Generator-added:
+
+- All Sprint 01–05 test files (already migrated): `AccountTest`,
+  `ActivityWindowTest`, `SendMoneyServiceTest`, `SendMoneyControllerTest`,
+  `AccountPersistenceAdapterTest`, `DependencyRuleTests`,
+  `BuckPalApplicationTests`. Untouched.
+- `build.gradle` — Sprint 00 / Sprint 07 territory.
+- ArchUnit infrastructure under `src/test/kotlin/.../archunit/**`.
+- Test fixtures under `src/test/kotlin/.../common/**`.
+- Coroutine APIs (`coEvery`, `coVerify`, `runBlocking`) — the system test
+  is a synchronous HTTP round-trip; the controller is not a suspend
+  function. No coroutines.
+- Mocking — this is a full-stack test; everything (controller, service,
+  persistence) is wired through the real Spring context. No `mockk`, no
+  `@MockkBean`, no `@MockBean`. Negative greps below guard this.
+
+---
+
+## Spec-style decision — `DescribeSpec` (class-body form)
+
+The spec offers `DescribeSpec` or `FunSpec`. The Generator picks
+`DescribeSpec` for these reasons:
+
+1. **Consistency with the prior Spring-flavored sprints.** Sprints 03
+   (`SendMoneyControllerTest`), 04 (`AccountPersistenceAdapterTest`), and
+   05's `BuckPalApplicationTests` all use the `DescribeSpec`
+   class-body form. Adopting the same shape minimizes review cognitive
+   load and keeps the Spring-extension wiring pattern uniform across
+   every Spring spec in the suite.
+2. **`override fun extensions()` requires class-body form.** Kotest
+   5.5.x registers the Spring extension via
+   `override fun extensions() = listOf(SpringExtension)`, which is a
+   member function and cannot live inside a `FunSpec({ ... })`
+   constructor-arg lambda. The class-body / `init { }` pattern is the
+   only viable shape when an `extensions()` override is required.
+3. **`@Autowired` `lateinit var` properties are class-level.** This file
+   has two `@Autowired` properties (`restTemplate`, `loadAccountPort`)
+   that must be Spring-injected before any leaf body runs. Class-level
+   `lateinit var` properties are wired by Kotest's `SpringExtension`
+   exactly the same way Sprints 03 and 04 wired theirs. Lambda-form
+   `FunSpec` cannot carry class-level injected properties.
+4. **One leaf, one `describe` container.** The original
+   `SendMoneySystemTest` has exactly one `@Test fun sendMoney()`. The
+   spec accepts `FunSpec` for flat single-block files, but since rules
+   1–3 force the class-body form anyway, `DescribeSpec` with one
+   `describe("...") { it("sends money") { ... } }` block reads more
+   naturally than a `FunSpec` with one `test(...)` block, and matches
+   `BuckPalApplicationTests`'s Sprint-05 shape exactly.
+
+**Final decision:**
+
+```kotlin
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+class SendMoneySystemTest : DescribeSpec() {
+
+    override fun extensions() = listOf(SpringExtension)
+
+    @Autowired
+    private lateinit var restTemplate: TestRestTemplate
+
+    @Autowired
+    private lateinit var loadAccountPort: LoadAccountPort
+
+    init {
+        describe("POST /accounts/send/{sourceAccountId}/{targetAccountId}/{amount}") {
+            it("sends money between two accounts") {
+                // body: load SQL, capture initial balances, POST, assert
+            }
+        }
+    }
+    // private helpers preserved as class-body methods
+}
+```
+
+The `describe` container name mirrors the HTTP route under test (same
+convention as Sprint 03's `SendMoneyControllerTest`). The single `it`
+leaf is named to clearly correspond to the original `@Test fun sendMoney()`.
+
+---
 
 ## Conversion targets
 
-### 1. `AccountJpaEntity.kt`
+| `.kt` file in scope                                          | Class type                                                                                                                                                                                                  |
+|---------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` | `@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT) class SendMoneySystemTest : DescribeSpec()` with class-body `override fun extensions()`, two `@Autowired lateinit var` properties, and `init { describe(...) { it(...) { } } }` |
 
-- **Top-level type kind:** plain `class` (NOT `data class`); `internal` (Java was package-private).
-- **JPA annotations preserved:** `@Entity`, `@Table(name = "account")`.
-- **kotlin-jpa plugin** synthesizes the no-arg ctor (build.gradle already has `org.jetbrains.kotlin.plugin.jpa` v1.6.21).
-- **Shape:**
+### Class shape facts — `SendMoneySystemTest`
 
-```kotlin
-@Entity
-@Table(name = "account")
-internal class AccountJpaEntity(
-    @Id
-    @GeneratedValue
-    var id: Long? = null,
-)
-```
+- Stays in package `io.reflectoring.buckpal` (root test package, same as today).
+- Class name stays `SendMoneySystemTest` so test filtering
+  (`--tests "io.reflectoring.buckpal.SendMoneySystemTest"` and
+  `--tests "*SendMoneySystemTest"`) continues to work unchanged.
+- `@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)` is
+  **preserved** verbatim on the new class (hard exit criterion).
+- Class extends `DescribeSpec()` (class-body form).
+- `override fun extensions() = listOf(SpringExtension)` registers Kotest's
+  Spring extension.
+- Two `@Autowired private lateinit var` properties, preserved verbatim
+  in name and type:
+  - `restTemplate: TestRestTemplate`
+  - `loadAccountPort: LoadAccountPort`
+  (Total `lateinit var` count for this file: **exactly 2**.)
+- One `describe("POST /accounts/send/{sourceAccountId}/{targetAccountId}/{amount}")` container
+  wrapping one `it("sends money between two accounts") { ... }` leaf.
+- The four private helper functions (`sourceAccount()`, `targetAccount()`,
+  `loadAccount(...)`, `whenSendMoney(...)`) plus the three private
+  constants-as-funs (`transferredAmount()`, `sourceAccountId()`,
+  `targetAccountId()`) are **kept as class-body member functions** —
+  they are called from the leaf and from each other. Member-function
+  form is necessary because they reference `loadAccountPort` /
+  `restTemplate`, which are class-level `lateinit var`s.
+- No `!!` non-null assertions. The original has none; the migration
+  preserves that.
 
-- `var` (not `val`) — JPA requires mutable properties for lazy loading and Hibernate proxy generation.
-- `Long?` with default `null` — matches Java `Long id` field semantics under `@NoArgsConstructor`.
-- No `@Data` Lombok replacement methods (`equals`/`hashCode`/`toString`) are needed: Java callers (none post-conversion) and the test code only use the generated getter/setter shape. Kotlin properties expose `getId()`/`setId(...)` to Java via JavaBean naming, which is what the test asserts (`savedActivity.getAmount()`).
+### `@Sql` resolution strategy — same approach as Sprint 04
 
-### 2. `ActivityJpaEntity.kt`
+Spec Risk #2: *"@Sql resolution inside Kotest test lambdas — JUnit's @Sql
+is discovered on Method objects; Kotest leaf tests are lambdas, not
+reflective methods. If kotest-extensions-spring does not honor class- +
+method-level @Sql on lambda leaves, Sprints 04 and 06 must fall back to
+executing the same SQL in a `beforeTest` block."*
 
-- **Top-level type kind:** plain `class` (NOT `data class`); `internal`.
-- **JPA annotations preserved:** `@Entity`, `@Table(name = "activity")`.
-- **Class simple name MUST remain `ActivityJpaEntity`** — referenced in JPQL strings.
-- **Shape:**
+Sprint 04 already exercised this fallback for `@DataJpaTest` and chose
+to drop the `@Sql` annotation entirely and load the SQL programmatically
+via `ScriptUtils.executeSqlScript` against the auto-wired `DataSource`.
+Sprint 06 adopts the **same pattern, same justification**:
 
-```kotlin
-@Entity
-@Table(name = "activity")
-internal class ActivityJpaEntity(
-    @Id
-    @GeneratedValue
-    var id: Long? = null,
+- The hard exit criterion says *"`@Sql(...)` is preserved on the leaf test
+  (same `@Sql` fallback strategy as Sprint 04 if needed)"*. Sprint 04's
+  realized strategy is to **drop** the `@Sql` annotation and call an
+  in-spec `loadSql("SendMoneySystemTest.sql")` helper at the top of the
+  leaf body. This matches the spec's "*if needed*" allowance: Kotest
+  5.5.x's `kotest-extensions-spring:1.1.3` does not reflect method-level
+  `@Sql` annotations on lambda leaves (validated empirically by Sprint
+  04). Therefore the annotation is removed and replaced by an explicit
+  call inside the leaf body — the SQL load still happens before any
+  assertion runs.
+- The Generator wires the SQL load via an auto-wired `javax.sql.DataSource`,
+  same as Sprint 04's `AccountPersistenceAdapterTest`. A third
+  `@Autowired private lateinit var dataSource: DataSource` property is
+  added (total `lateinit var` count then becomes **3**). A private
+  `loadSql(resource: String)` helper joins the current transaction (via
+  `DataSourceUtils.getConnection(dataSource)`) and executes the
+  classpath script at
+  `io/reflectoring/buckpal/SendMoneySystemTest.sql`. `@SpringBootTest`
+  does not roll back transactions by default (unlike `@DataJpaTest`), so
+  the SQL inserts persist for the duration of this random-port server;
+  the test is isolated because it runs in its own Spring context with a
+  fresh H2 database.
+- The classpath path is
+  `io/reflectoring/buckpal/SendMoneySystemTest.sql` — matches the
+  resource location seen via `find`: `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql`.
+- Negative-grep acceptance for the `@Sql` annotation removal is
+  formalised below.
 
-    @Column
-    var timestamp: LocalDateTime? = null,
+### Annotation policy summary
 
-    @Column
-    var ownerAccountId: Long? = null,
+- `@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)` —
+  **preserved**.
+- `@Sql("SendMoneySystemTest.sql")` — **dropped**; replaced by an
+  in-leaf `loadSql("SendMoneySystemTest.sql")` call. (Spec sanctions
+  this fallback verbatim.)
+- `@Autowired` on `restTemplate`, `loadAccountPort`, `dataSource` —
+  applied to the three `lateinit var` properties.
 
-    @Column
-    var sourceAccountId: Long? = null,
-
-    @Column
-    var targetAccountId: Long? = null,
-
-    @Column
-    var amount: Long? = null,
-)
-```
-
-- All columns nullable with default `null` to retain `@NoArgsConstructor` semantics under kotlin-jpa.
-- `@Column` annotation kept on each property (preserves the Java placement on the field).
-- `import javax.persistence.*` (Spring Boot 2.4.3 still uses the `javax.persistence` namespace, NOT `jakarta`).
-
-### 3. `AccountMapper.kt`
-
-- **Top-level type kind:** plain `class` (stateless); `internal`; `@Component`.
-- **Method signatures preserved 1:1** — all three methods package-private in Java → `internal` in Kotlin.
-- **Shape:**
-
-```kotlin
-@Component
-internal class AccountMapper {
-
-    fun mapToDomainEntity(
-        account: AccountJpaEntity,
-        activities: List<ActivityJpaEntity>,
-        withdrawalBalance: Long,
-        depositBalance: Long,
-    ): Account {
-        val baselineBalance = Money.subtract(
-            Money.of(depositBalance),
-            Money.of(withdrawalBalance),
-        )
-
-        // EVALUATOR: same decision as below — use requireNotNull rather than
-        // `account.id!!` so the failure message identifies which entity field
-        // was unexpectedly null. Bind to a local `val` so the call site reads
-        // cleanly.
-        val accountId = requireNotNull(account.id) {
-            "AccountJpaEntity loaded without id"
-        }
-        return Account.withId(
-            Account.AccountId(accountId),
-            baselineBalance,
-            mapToActivityWindow(activities),
-        )
-    }
-
-    fun mapToActivityWindow(activities: List<ActivityJpaEntity>): ActivityWindow {
-        val mappedActivities = activities.map { activity ->
-            // EVALUATOR: decision (!! vs requireNotNull) — use requireNotNull
-            // at the TOP of the lambda for all six properties, binding to
-            // local non-null `val`s. Rationale: (1) the rubric (line 99-101)
-            // accepts commented `!!` but Idiomatic Kotlin scores higher when
-            // null-pointer triggers carry a message; (2) six inline `!!` on
-            // one constructor call is noisy and the per-field comment ends
-            // up identical for all six ("guaranteed non-null after Hibernate
-            // load") — a single block of `requireNotNull` with field-named
-            // messages is shorter AND more informative on failure.
-            val id = requireNotNull(activity.id) { "ActivityJpaEntity loaded without id" }
-            val ownerAccountId = requireNotNull(activity.ownerAccountId) {
-                "ActivityJpaEntity loaded without ownerAccountId"
-            }
-            val sourceAccountId = requireNotNull(activity.sourceAccountId) {
-                "ActivityJpaEntity loaded without sourceAccountId"
-            }
-            val targetAccountId = requireNotNull(activity.targetAccountId) {
-                "ActivityJpaEntity loaded without targetAccountId"
-            }
-            val timestamp = requireNotNull(activity.timestamp) {
-                "ActivityJpaEntity loaded without timestamp"
-            }
-            val amount = requireNotNull(activity.amount) {
-                "ActivityJpaEntity loaded without amount"
-            }
-            Activity(
-                Activity.ActivityId(id),
-                Account.AccountId(ownerAccountId),
-                Account.AccountId(sourceAccountId),
-                Account.AccountId(targetAccountId),
-                timestamp,
-                Money.of(amount),
-            )
-        }
-        return ActivityWindow(mappedActivities.toMutableList())
-    }
-
-    fun mapToJpaEntity(activity: Activity): ActivityJpaEntity =
-        // EVALUATOR: use NAMED arguments for all 6 ctor params (id =, timestamp =,
-        // ownerAccountId =, sourceAccountId =, targetAccountId =, amount =).
-        // ActivityJpaEntity has 6 same-type-shape `Long?` fields and an easy
-        // positional swap (source <-> target) would silently break behavior.
-        // Named args are idiomatic Kotlin and make the mapping audit-friendly.
-        ActivityJpaEntity(
-            id = activity.id?.value,
-            timestamp = activity.timestamp,
-            ownerAccountId = activity.ownerAccountId.value,
-            sourceAccountId = activity.sourceAccountId.value,
-            targetAccountId = activity.targetAccountId.value,
-            amount = activity.money.amount.toLong(),
-        )
-}
-```
-
-Key conversion points:
-- The `activity.getId() == null ? null : activity.getId().getValue()` Java ternary collapses to `activity.id?.value` (Kotlin safe call).
-- The `for`-loop in `mapToActivityWindow` becomes `activities.map { ... }`. The result is wrapped in `.toMutableList()` because `ActivityWindow`'s primary ctor (from Sprint 2) takes `MutableList<Activity>`.
-- `Money.subtract(...)` / `Money.of(...)` companion-object `@JvmStatic` factories from Sprint 2 are called directly (same JVM call shape as Java).
-- // EVALUATOR: SUPERSEDED. The original draft said "`!!` will carry a single-line comment". The evaluator decision above replaces every `!!` with `requireNotNull(field) { "ActivityJpaEntity loaded without <field>" }` (and likewise for `AccountJpaEntity.id`). Net effect: zero `!!` in the mapper; seven `requireNotNull` calls; failure messages name the specific field. The JPA-contract reason for nullable `Long?` on the entity properties is unchanged; only the post-load assertion style changed.
-- `activity.money.amount.toLong()` replaces `activity.getMoney().getAmount().longValue()`. `Money.amount` is `BigInteger`; Kotlin `toLong()` is the idiomatic equivalent of `BigInteger.longValue()`.
-- `ActivityWindow(mappedActivities.toMutableList())` — `ActivityWindow` primary ctor takes `MutableList<Activity>` per Sprint 2.
-
-### 4. `SpringDataAccountRepository.kt`
-
-- **Top-level type kind:** `interface ... : JpaRepository<AccountJpaEntity, Long>`; `internal`.
-- **Shape:**
-
-```kotlin
-internal interface SpringDataAccountRepository : JpaRepository<AccountJpaEntity, Long>
-```
-
-- One-line interface body (or empty `{}`), no methods.
-
-### 5. `ActivityRepository.kt`
-
-- **Top-level type kind:** `interface ... : JpaRepository<ActivityJpaEntity, Long>`; `internal`.
-- **JPQL `@Query` strings preserved VERBATIM:**
-
-```kotlin
-internal interface ActivityRepository : JpaRepository<ActivityJpaEntity, Long> {
-
-    @Query(
-        "select a from ActivityJpaEntity a " +
-            "where a.ownerAccountId = :ownerAccountId " +
-            "and a.timestamp >= :since"
-    )
-    fun findByOwnerSince(
-        @Param("ownerAccountId") ownerAccountId: Long,
-        @Param("since") since: LocalDateTime,
-    ): List<ActivityJpaEntity>
-
-    @Query(
-        "select sum(a.amount) from ActivityJpaEntity a " +
-            "where a.targetAccountId = :accountId " +
-            "and a.ownerAccountId = :accountId " +
-            "and a.timestamp < :until"
-    )
-    fun getDepositBalanceUntil(
-        @Param("accountId") accountId: Long,
-        @Param("until") until: LocalDateTime,
-    ): Long?
-
-    @Query(
-        "select sum(a.amount) from ActivityJpaEntity a " +
-            "where a.sourceAccountId = :accountId " +
-            "and a.ownerAccountId = :accountId " +
-            "and a.timestamp < :until"
-    )
-    fun getWithdrawalBalanceUntil(
-        @Param("accountId") accountId: Long,
-        @Param("until") until: LocalDateTime,
-    ): Long?
-}
-```
-
-Key conversion points:
-- JPQL strings copied byte-for-byte from the Java source (line-break / concatenation pattern preserved — Kotlin string concatenation via `+` is fine; alternative would be a triple-quoted raw string but the `+` form keeps the diff minimal and matches Java line-by-line).
-- `getDepositBalanceUntil` / `getWithdrawalBalanceUntil` return `Long?` — JPQL `sum(...)` returns `null` when no rows match (the original Java method signature was `Long` boxed which is implicitly nullable in Java; the adapter's `orZero(...)` helper exists precisely because of this null possibility). Kotlin must declare it `Long?` to compile the null-handling path.
-- `@Param("...")` annotations preserved verbatim. Kotlin parameter-name reflection works in modern Spring but the explicit `@Param` matches the Java source and is robust to compiler-flag changes.
-- `findByOwnerSince` returns `List<ActivityJpaEntity>` (non-null — JPA query never returns null list; empty list possible).
-
-### 6. `AccountPersistenceAdapter.kt`
-
-- **Top-level type kind:** plain `class`; `internal`; `@PersistenceAdapter` preserved.
-- **Implements:** `LoadAccountPort`, `UpdateAccountStatePort` (already Kotlin from Sprint 3).
-- **Shape:**
-
-```kotlin
-@PersistenceAdapter
-internal class AccountPersistenceAdapter(
-    private val accountRepository: SpringDataAccountRepository,
-    private val activityRepository: ActivityRepository,
-    private val accountMapper: AccountMapper,
-) : LoadAccountPort, UpdateAccountStatePort {
-
-    override fun loadAccount(
-        accountId: Account.AccountId,
-        baselineDate: LocalDateTime,
-    ): Account {
-        val account = accountRepository.findById(accountId.value)
-            .orElseThrow { EntityNotFoundException() }
-
-        val activities = activityRepository.findByOwnerSince(
-            accountId.value,
-            baselineDate,
-        )
-
-        val withdrawalBalance = activityRepository.getWithdrawalBalanceUntil(
-            accountId.value,
-            baselineDate,
-        ) ?: 0L
-
-        val depositBalance = activityRepository.getDepositBalanceUntil(
-            accountId.value,
-            baselineDate,
-        ) ?: 0L
-
-        return accountMapper.mapToDomainEntity(
-            account,
-            activities,
-            withdrawalBalance,
-            depositBalance,
-        )
-    }
-
-    override fun updateActivities(account: Account) {
-        // EVALUATOR: `account.activityWindow.activities` will NOT compile.
-        // `ActivityWindow` (Sprint 2 output, see Activitywindow.kt) declares
-        // `getActivities()` as a Kotlin `fun`, not as a property — and
-        // `private val activities` is the *private* backing field, not the
-        // accessor. Kotlin synthetic-property syntax only applies to JAVA
-        // getters, not to Kotlin-declared `fun getX()`. Use the explicit
-        // call: `account.activityWindow.getActivities()`. (Alternatively, a
-        // Sprint-2 follow-up could expose `activities` as a Kotlin `val`
-        // property — but that change is out of scope here.)
-        for (activity in account.activityWindow.getActivities()) {
-            if (activity.id == null) {
-                activityRepository.save(accountMapper.mapToJpaEntity(activity))
-            }
-        }
-    }
-}
-```
-
-Key conversion points:
-- `@RequiredArgsConstructor` collapses into Kotlin primary-constructor `val` parameter injection.
-- `@PersistenceAdapter` (from Sprint 1) is meta-annotated `@Component`; kotlin-spring plugin makes the class `open` automatically for CGLIB proxying.
-- The Java `private Long orZero(Long value)` helper is **inlined as `?: 0L` Elvis** at the two call sites — idiomatic and removes a one-line helper.
-- `.orElseThrow(EntityNotFoundException::new)` → `.orElseThrow { EntityNotFoundException() }` (Kotlin lambda for `Supplier`).
-- `account.activityWindow.activities` — `ActivityWindow.getActivities()` per Sprint 2 returns `List<Activity>` as a Kotlin property; this reads cleanly without `get*()` calls.
-  // EVALUATOR: WRONG. Sprint 2 made `getActivities()` a `fun`, and Kotlin
-  // synthetic properties don't kick in for Kotlin-declared functions.
-  // Use `account.activityWindow.getActivities()` (function call) instead.
-  // The comment "without `get*()` calls" must be removed at implementation
-  // time — and the for-loop in `updateActivities` uses the call form per
-  // the code-block edit above.
-- `activity.id == null` works directly on the nullable `Activity.id: ActivityId?` (Sprint 2 shape).
-- `accountId.value` replaces `accountId.getValue()` — `AccountId.value: Long` is the data-class property.
-- `import javax.persistence.EntityNotFoundException` preserved (Spring Boot 2.4.3 namespace).
-
-## Acceptance checks
-
-- [ ] `find src/main/java/io/reflectoring/buckpal/account/adapter/out -name '*.java'` → 0
-- [ ] `find src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence -name '*.kt'` → exactly 6
-- [ ] `grep -R "import lombok" src/main/kotlin/io/reflectoring/buckpal/account/adapter/out` → 0 matches
-- [ ] `grep -E "(lateinit|@Autowired)" src/main/kotlin/io/reflectoring/buckpal/account/adapter/out -r` → 0 matches (scope-restricted anti-pattern grep)
-- [ ] `grep -R "Optional<" src/main/kotlin/io/reflectoring/buckpal/account/adapter/out` → 0 matches (no new `Optional` introduced in scope; `Account.kt`'s `Optional` shim is out of scope)
-- [ ] `grep -c "!!" src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt` → **exactly 0** (the EVALUATOR decision above replaced all `!!` with `requireNotNull { ... }` blocks — verify zero `!!` in the mapper)
-- [ ] `grep -c "requireNotNull" src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt` → **exactly 7** (one for `account.id` in `mapToDomainEntity`; six for `activity.{id,ownerAccountId,sourceAccountId,targetAccountId,timestamp,amount}` in `mapToActivityWindow`)
-- [ ] `grep -R "!!" src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/` → **0 matches** (no `!!` anywhere in scope after the requireNotNull decision)
-- [ ] `grep '@PersistenceAdapter' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt` → 1 match
-- [ ] `grep '@Entity' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt` → 1 match; same for `ActivityJpaEntity.kt`
-- [ ] `grep '@Table(name = "account")' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt` → 1 match
-- [ ] `grep '@Table(name = "activity")' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt` → 1 match
-- [ ] JPQL strings preserved **verbatim** — `grep -c 'select a from ActivityJpaEntity a' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt` → 1; `grep -c 'select sum(a.amount) from ActivityJpaEntity a' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt` → 2; combined-text check: each of the three JPQL strings appears character-for-character as in the Java source (modulo Kotlin `+` concatenation syntax)
-- [ ] `grep -c '@Param(' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt` → **6** (method 1: `ownerAccountId`+`since` = 2; method 2: `accountId`+`until` = 2; method 3: `accountId`+`until` = 2 → 6 total)
-  // EVALUATOR: original draft said 7 — math error. The Java source has 2+2+2=6 `@Param` annotations.
-- [ ] Property names preserved exactly: `grep -E 'var (ownerAccountId|sourceAccountId|targetAccountId|timestamp|amount): ' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt | wc -l` → 5
-- [ ] `JAVA_HOME=/Users/hannamil/Library/Java/JavaVirtualMachines/corretto-17.0.13/Contents/Home ./gradlew clean compileKotlin compileJava compileTestKotlin compileTestJava test` → BUILD SUCCESSFUL, 16/16 pass
-- [ ] `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest"` → 2/2 pass
-- [ ] `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"` → 1/1 pass (full Spring Boot context + H2 + `@Sql` fixture)
-- [ ] `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"` → pass (ArchUnit green; package paths preserved)
-- [ ] `./gradlew check` → BUILD SUCCESSFUL (ArchUnit DependencyRuleTests + all tests green)
-- [ ] kotlinc warnings on the 6 new files → 0 (verified via `./gradlew clean compileKotlin --info | grep -E '^w:|warning:'` → 0 matches)
-- [ ] // EVALUATOR: ADDED — `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest.loadsAccount"` → PASS. This test specifically exercises (a) Hibernate instantiating `ActivityJpaEntity` via the kotlin-jpa-synthesized no-arg ctor, (b) all three JPQL `@Query` methods on `ActivityRepository`, (c) `AccountMapper.mapToDomainEntity` (the `requireNotNull` block). If kotlin-jpa is misconfigured, this test fails fast with `InstantiationException`; the targeted run isolates the failure mode from the broader `./gradlew test`.
-- [ ] // EVALUATOR: ADDED — Architectural-Integrity sanity grep: `grep -c '@PersistenceAdapter' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt` → 1 AND `grep -R '@Component' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt` → 0 (the `@PersistenceAdapter` marker must be the only stereotype on the class; ArchUnit's `Adapters` helper grep-equivalent rules look for `@PersistenceAdapter`, not `@Component`).
-- [ ] // EVALUATOR: ADDED — `./gradlew test --tests "io.reflectoring.buckpal.archunit.*"` → green. Same coverage as `DependencyRuleTests` but explicitly names the helper-class suite; flags any drift in the adapter package layout.
-- [ ] // EVALUATOR: ADDED — Code-Quality grep: `grep -R 'TODO\|FIXME\|XXX' src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/` → 0 matches. (Catches commented-out leftovers or deferred-work TODOs without sprint references.)
+---
 
 ## Idiomatic Kotlin commitments
 
-1. **JPA entities are plain `class`, not `data class`.** JPA requires mutable properties for lazy loading and Hibernate proxy generation; equality on identity (Hibernate's behavior) would conflict with `data class`'s structural equality. All entity properties are `var ...: T? = null` so kotlin-jpa can synthesize the no-arg ctor.
-2. **Primary-constructor injection** in `AccountPersistenceAdapter` — `private val` for each dependency. No `@Autowired field`, no `lateinit var`.
-3. **Nullable types over `Optional<>`.** `getDepositBalanceUntil` / `getWithdrawalBalanceUntil` return `Long?`. The adapter handles the null with Elvis (`?: 0L`), eliminating the Java `orZero` helper entirely.
-4. **Functional collection ops.** `mapToActivityWindow` uses `activities.map { ... }` instead of a manual `for`-loop + `ArrayList`. Result wrapped in `.toMutableList()` to fit `ActivityWindow`'s primary-ctor signature.
-5. **Safe-call + Elvis.** `activity.id?.value` in `mapToJpaEntity` replaces the Java `activity.getId() == null ? null : activity.getId().getValue()` ternary — a textbook Kotlin idiom.
-6. **`internal` for package-private Java types** — `AccountJpaEntity`, `ActivityJpaEntity`, `AccountMapper`, `SpringDataAccountRepository`, `ActivityRepository`, `AccountPersistenceAdapter` all use `internal`. Spring's component scan + Spring Data JPA's repository scan both work on `internal` Kotlin classes (bytecode is `public final`; Spring ignores name mangling on internal members).
-7. // EVALUATOR: ADDED — **`requireNotNull` over `!!` for JPA-entity post-load reads.** Per the rubric (line 99-101) `!!` is allowed with a one-line comment, but `requireNotNull(field) { "JPA entity loaded without <field>" }` is more idiomatic, fails with a named message, and bunches well at the top of a `map { }` lambda. Zero `!!` in scope; 7 `requireNotNull` calls in `AccountMapper.kt`.
-8. // EVALUATOR: ADDED — **Named arguments for `ActivityJpaEntity` ctor calls.** Six same-type-shape `Long?` parameters → positional invocation is a foot-gun (silent source/target swap). `mapToJpaEntity` uses named args.
+1. **`DescribeSpec()` class-body form** — required because
+   `override fun extensions()` cannot live inside a constructor-arg
+   lambda. Consistent with Sprints 03, 04, and 05's
+   `BuckPalApplicationTests`.
+2. **Exactly 3 `lateinit var` properties** — `restTemplate`,
+   `loadAccountPort`, and the new `dataSource`. The first two are
+   verbatim from today; the third is the Sprint-04-pattern addition
+   needed to run the SQL programmatically (since `@Sql` cannot survive
+   on a lambda leaf under Kotest 5.5.x).
+3. **No `!!` non-null assertions.** Today's file has none; the
+   migration preserves that.
+4. **No `Mockito.` prefix, no `org.mockito` / `BDDMockito` imports, no
+   `@MockBean` / `@MockkBean`, no `every` / `verify` / `mockk` calls.**
+   This is a full-stack system test; nothing is mocked.
+5. **No `@Test` annotation; no `org.junit.jupiter.api.*` imports.**
+6. **No `org.assertj.core.*` imports** — the lone `BDDAssertions.then`
+   today is replaced by Kotest's infix `shouldBe`.
+7. **Kotest matchers in infix form only.** `actual shouldBe expected`
+   (no `.shouldBe(...)` method-call form, no helper-wrapping). The
+   three assertions become:
+   - `response.statusCode shouldBe HttpStatus.OK`
+   - `sourceAccount().calculateBalance() shouldBe initialSourceBalance.minus(transferredAmount())`
+   - `targetAccount().calculateBalance() shouldBe initialTargetBalance.plus(transferredAmount())`
+8. **`SpringExtension` is the Kotest object
+   `io.kotest.extensions.spring.SpringExtension`**, not the JUnit
+   variant `org.springframework.test.context.junit.jupiter.SpringExtension`.
+   Registered via `override fun extensions() = listOf(SpringExtension)`.
+9. **Helper functions stay as private class-body members** (`sourceAccount`,
+   `targetAccount`, `loadAccount`, `whenSendMoney`, `transferredAmount`,
+   `sourceAccountId`, `targetAccountId`). They reference
+   `loadAccountPort` and `restTemplate`, so they cannot move to top
+   level without losing access to the injected properties. Today's
+   shape is preserved.
+10. **HTTP call shape preserved verbatim.** `restTemplate.exchange(...)`
+    with the same path template, `HttpMethod.POST`, `HttpEntity<Void>`
+    + `HttpHeaders` carrying `Content-Type: application/json`, and the
+    same path-variable args (`sourceAccountId.value`,
+    `targetAccountId.value`, `amount.amount`). The Generator does not
+    refactor the HTTP shape.
 
-## Risks specific to this sprint
+---
 
-1. **kotlin-jpa no-arg ctor synthesis.** Without the plugin Hibernate cannot instantiate entities reflectively. The plugin IS applied in `build.gradle` (`org.jetbrains.kotlin.plugin.jpa` v1.6.21, line 6). Verification: the `@Sql`-driven `AccountPersistenceAdapterTest.loadsAccount` test loads rows via Hibernate; if the no-arg ctor is missing, the test fails fast with `InstantiationException`.
-2. **kotlin-spring `open` synthesis on `@PersistenceAdapter`.** `@PersistenceAdapter` is meta-annotated `@Component` (Sprint 1's `PersistenceAdapter.kt` carries `@Component`). kotlin-spring plugin opens the class for CGLIB. **No `@Transactional` is in scope for this sprint** (no transactional methods on the adapter), so CGLIB is not strictly required, but `kotlin-spring` will still open the class — a no-op concern, listed for completeness.
-3. **Hibernate naming strategy for column names.** Default Spring Boot 2.4.3 strategy maps camelCase property names → snake_case columns (`ownerAccountId` → `owner_account_id`). The `@Sql` fixtures (both `AccountPersistenceAdapterTest.sql` and `SendMoneySystemTest.sql`) use snake_case column names, confirming the active strategy. Kotlin property names MUST stay camelCase verbatim — renaming would silently break the fixture inserts.
-4. **JPQL references entity simple class name.** `ActivityJpaEntity` appears in all three `@Query` strings. The Kotlin class MUST be named `ActivityJpaEntity` (not `Activity` or `ActivityEntity`). The Kotlin file name MUST be `ActivityJpaEntity.kt` for tooling consistency.
-5. **`@Sql` fixture insert order — `SendMoneySystemTest.sql`.** Inserts `account` rows before `activity` rows; activity references account FK semantically (no actual FK constraint in the schema, but the test assumes both exist). No change in behavior — the fixture is unmodified — but listed because the adapter's full-stack test depends on it.
-6. **`AccountId.value: Long` unboxing.** `AccountId(account.id!!)` requires `account.id: Long?` to be non-null. The `!!` is safe at this point — Hibernate populates `@Id` on load — but the assertion is the only one in the adapter file. Considered acceptable per rubric's "explained `!!`" allowance (one-line comment required).
-7. **`Money.amount: BigInteger.toLong()` vs Java `.longValue()`.** Both truncate silently if the value exceeds `Long.MAX_VALUE`. The H2 column is `Long` (max ~9.2e18); transferred amounts in fixtures are 500/1000. No risk in practice.
-8. **`activityRepository.count()` in `updatesActivities` test.** Counts rows in the activity table. Currently passes because `@DataJpaTest` rolls back between tests and `updatesActivities` doesn't use `@Sql`. After conversion, behavior must be identical — `activityRepository` is a Kotlin `interface` extending `JpaRepository<>` so `count()` is inherited unchanged.
-9. **Test still references `accountMapper.mapToJpaEntity(...)` indirectly via `activityRepository.findAll().get(0).getAmount()`.** `getAmount()` is auto-generated by Kotlin from `var amount: Long?` — Java callers see a `Long getAmount()` signature returning a possibly-null boxed Long. The test asserts `isEqualTo(1L)` — AssertJ unboxes; null would NPE. Hibernate guarantees the value is populated after save.
+## Risk handling specific to this sprint
 
-## Out of scope
+### Risk: `@Sql` annotation on lambda leaf (spec Risk register #2)
 
-- Root Spring config (`BuckPalApplication`, `BuckPalConfiguration`, `BuckPalConfigurationProperties`) — Sprint 7.
-- Test conversion (`AccountPersistenceAdapterTest`, `SendMoneySystemTest`, all other `.java` tests) — Sprint 8.
-- Removing `Account.kt`'s `Optional<AccountId>` shim — deferred to Sprint 9 (after Sprint 8 converts the Java tests that consume the Optional form).
-- Removing Lombok from `build.gradle` dependencies — Sprint 9 cleanup.
-- Switching `build.gradle` to `build.gradle.kts` — Sprint 9 optional.
+Already addressed above: the annotation is dropped and replaced by an
+in-leaf `loadSql("SendMoneySystemTest.sql")` call, mirroring Sprint 04's
+proven approach. The hard exit criterion permits "*the same `@Sql`
+fallback strategy as Sprint 04*"; Sprint 04 dropped the annotation in
+favour of a programmatic SQL load. Sprint 06 adopts the same.
 
-## Implementation order
+### Risk: `@SpringBootTest` + Kotest `SpringExtension` wiring (spec Risk #1)
 
-1. Read each Java file again immediately before conversion.
-2. Create the 6 `.kt` files **in dependency order**:
-   1. `AccountJpaEntity.kt` (no deps on other in-scope files).
-   2. `ActivityJpaEntity.kt` (no deps on other in-scope files).
-   3. `SpringDataAccountRepository.kt` (depends on `AccountJpaEntity`).
-   4. `ActivityRepository.kt` (depends on `ActivityJpaEntity`).
-   5. `AccountMapper.kt` (depends on both entity classes + domain).
-   6. `AccountPersistenceAdapter.kt` (depends on all five above + Sprint 3 ports + Sprint 1 `@PersistenceAdapter`).
-3. Run `./gradlew compileKotlin` after creating all 6 `.kt` files — must succeed before any deletion.
-4. Delete the 6 `.java` files.
-5. Run `./gradlew compileJava compileTestJava` — remaining Java consumers (root + tests) must still compile against the new Kotlin code. Specifically:
-   - `AccountPersistenceAdapterTest.java` references `AccountPersistenceAdapter`, `AccountMapper`, `ActivityRepository`, `ActivityJpaEntity` — all by import; their Kotlin replacements must export the same JVM symbols (`getAmount()` etc.).
-   - `BuckPalConfiguration.java` does NOT reference any persistence-adapter type directly (only `MoneyTransferProperties`); no risk there.
-6. Run `./gradlew test` — all 16 tests must pass.
-7. Targeted re-runs: `AccountPersistenceAdapterTest` (2/2), `SendMoneySystemTest` (1/1), `DependencyRuleTests` (2/2).
-8. `./gradlew check` → green.
-9. `./gradlew clean compileKotlin --info | grep -E '^w:|warning:'` → 0 matches.
-10. Write `.claude/harness/workspace/handoffs/sprint-06-handoff.md`.
-11. Commit: `feat(kotlin): sprint 6 — convert persistence adapter to Kotlin`.
+Sprints 03 (`@WebMvcTest`), 04 (`@DataJpaTest`), and 05's
+`BuckPalApplicationTests` (`@SpringBootTest`) have already validated the
+`kotest-extensions-spring:1.1.3` wiring for all three Spring slice
+shapes. `@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)`
+uses the same `TestContextManager` lifecycle as the plain
+`@SpringBootTest` exercised in Sprint 05 — the random-port aspect only
+changes how the embedded servlet container is wired, not how Kotest's
+extension hooks `TestContextManager.beforeTestClass()` /
+`prepareTestInstance()` calls. Mitigation:
 
-## Self-check (Generator, before writing handoff)
+- Use `override fun extensions() = listOf(SpringExtension)` exactly as in
+  Sprints 03, 04, and 05.
+- The fallback `override fun listeners() = listOf(SpringExtension)` is
+  documented in Sprint 03's contract; only swap to it if `extensions()`
+  self-check fails.
 
-- [ ] All 6 `.kt` files compile.
-- [ ] All 6 `.java` files deleted.
-- [ ] `find src/main/java/io/reflectoring/buckpal/account/adapter/out -name '*.java'` → 0
-- [ ] `find src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence -name '*.kt'` → 6
-- [ ] `./gradlew clean compileKotlin compileJava compileTestKotlin compileTestJava test` → BUILD SUCCESSFUL, 16/16 pass
-- [ ] `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest"` → 2/2 pass
-- [ ] `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"` → 1/1 pass
-- [ ] `./gradlew check` → ArchUnit green
-- [ ] No `import lombok`, no `lateinit`, no `@Autowired`, no `Optional<` in the 6 new files
-- [ ] Zero `!!` in `AccountMapper.kt` (and zero anywhere else in scope) — all non-null assertions are written as `requireNotNull(field) { "<entity> loaded without <field>" }` per the EVALUATOR decision.
-- [ ] `@Entity`, `@Table`, `@PersistenceAdapter`, `@Component`, `@Query`, `@Param` annotations preserved exactly
-- [ ] JPQL strings preserved verbatim (text-compare against the Java source)
-- [ ] Class simple names preserved: `AccountJpaEntity`, `ActivityJpaEntity`, `AccountMapper`, `SpringDataAccountRepository`, `ActivityRepository`, `AccountPersistenceAdapter`
-- [ ] All 6 classes are `internal` (matching Java package-private)
-- [ ] 0 kotlinc warnings on the new files
-- [ ] `git status` — only in-scope files modified (6 java deleted, 6 kt added, plus contract/handoff/review meta-files)
+### Risk: `TestRestTemplate` injection under Kotest
+
+`@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)` registers
+a `TestRestTemplate` bean preconfigured with the random port. Kotest's
+Spring extension delegates to `TestContextManager`, which performs the
+`@Autowired` injection during `prepareTestInstance`. The class-body
+`@Autowired private lateinit var restTemplate: TestRestTemplate`
+declaration is identical to the original (lines 24–25 of today's file)
+and will be populated by Spring before any `init { describe { it { } } }`
+leaf runs. Same wiring as `MockMvc` in Sprint 03 (which already passed).
+
+### Risk: HTTP round-trip semantics
+
+The original test issues `POST /accounts/send/1/2/500` and expects:
+
+- HTTP 200 in the response.
+- `sourceAccount.calculateBalance()` decreased by 500.
+- `targetAccount.calculateBalance()` increased by 500.
+
+The migration preserves every one of these assertions, expressed in
+Kotest infix `shouldBe` form. The HTTP path, method, headers, body, and
+path-variable order are copied verbatim. Behavior cannot drift because
+the production code under `src/main/kotlin/**` is non-negotiably
+untouched.
+
+### Risk: `@Sql` SQL load timing in random-port test
+
+Today, `@Sql("SendMoneySystemTest.sql")` runs before the `@Test` method
+fires, populating two accounts and eight activities. After migration,
+`loadSql("SendMoneySystemTest.sql")` is the first call inside the leaf
+body, so the SQL still runs before any `restTemplate.exchange(...)` and
+before the `sourceAccount()` / `targetAccount()` helpers are invoked.
+The random-port embedded server is started by Spring during
+`@SpringBootTest` bootstrap (before any leaf), so by the time the SQL
+script inserts rows, the controller endpoint is already live and ready
+to accept the POST.
+
+Note: unlike Sprint 04's `@DataJpaTest` (which rolls back transactions
+at leaf end), `@SpringBootTest` does **not** auto-rollback. The inserted
+rows persist for the lifetime of this test class's Spring context. Since
+this file has exactly one leaf and the spec keeps it at one leaf, no
+data-isolation issue arises. (If the file ever grows a second leaf, a
+`@DirtiesContext` or per-leaf `delete from activity; delete from account;`
+pre-clean would be needed — but that is out of scope for Sprint 06.)
+
+### Risk: leaf-count mismatch on `SendMoneySystemTest` XML
+
+Today the JUnit engine emits
+`TEST-io.reflectoring.buckpal.SendMoneySystemTest.xml` with `tests="1"`
+(one `@Test` method `sendMoney`). After migration to `DescribeSpec` with
+one `describe { it { } }`, Kotest emits a single leaf —
+`tests="1"` is preserved. Acceptance check below formalizes this.
+
+### Risk: aggregate leaf count
+
+The Sprint 05 PASS-review baseline is **16 leaves total**:
+
+| Suite | tests |
+|-------|-------|
+| `account.adapter.in.web.SendMoneyControllerTest` | 1 |
+| `account.adapter.out.persistence.AccountPersistenceAdapterTest` | 2 |
+| `account.application.service.SendMoneyServiceTest` | 2 |
+| `account.domain.AccountTest` | 4 |
+| `account.domain.ActivityWindowTest` | 3 |
+| `BuckPalApplicationTests` | 1 |
+| `DependencyRuleTests` | 2 |
+| `SendMoneySystemTest` | 1 |
+| **Total** | **16** |
+
+Sprint 06 touches only the last row (`SendMoneySystemTest`) and keeps
+its count at 1. Aggregate must remain **16 leaves**.
+
+### Risk: Kotest spec class import paths
+
+Kotest 5.5.x exposes:
+
+- `io.kotest.core.spec.style.DescribeSpec`
+- `io.kotest.extensions.spring.SpringExtension`
+- `io.kotest.matchers.shouldBe` (infix matcher)
+
+These are the imports added. The artifacts are already on
+`testRuntimeClasspath` per Sprint 00 / Sprints 03–05, so resolution
+succeeds.
+
+### Risk: Spring `DataSource` import collision
+
+The Sprint 04 file imports `javax.sql.DataSource` (not
+`jakarta.sql.DataSource`). Spring Boot 2.4.3 targets Java EE 8, so
+`javax.sql.DataSource` is the correct package. Sprint 06 uses the
+same import path.
+
+---
+
+## Inventory of JUnit / AssertJ / Spring API used today
+
+Grepped from the live file (Read above) — `SendMoneySystemTest.kt` is
+**85 lines** with **1 `@Test`**, **2 `@Autowired`**, **1 `@Sql`**.
+
+| Today's API                                                                        | Where it appears                                  | Disposition           |
+|-------------------------------------------------------------------------------------|----------------------------------------------------|------------------------|
+| `org.assertj.core.api.BDDAssertions.then` (import + 3 call sites)                  | line 7 (import); lines 42, 45, 48 (calls)          | **Deleted** (replaced by `shouldBe`) |
+| `org.junit.jupiter.api.Test` (import + annotation)                                  | line 8 (import); line 30 (annotation)              | **Deleted**            |
+| `org.springframework.test.context.jdbc.Sql` (import + annotation)                   | line 18 (import); line 31 (annotation)             | **Deleted** (replaced by `loadSql(...)` helper, see Sprint-04-pattern justification above) |
+| `io.reflectoring.buckpal.account.application.port.out.LoadAccountPort` (import)    | line 3                                             | Retained               |
+| `io.reflectoring.buckpal.account.domain.Account` (import)                          | line 4                                             | Retained               |
+| `io.reflectoring.buckpal.account.domain.Account.AccountId` (import)                | line 5                                             | Retained               |
+| `io.reflectoring.buckpal.account.domain.Money` (import)                            | line 6                                             | Retained               |
+| `org.springframework.beans.factory.annotation.Autowired` (import + 2 annotations)  | line 9 (import); lines 24, 27 (annotations)        | Retained               |
+| `org.springframework.boot.test.context.SpringBootTest` (import + annotation)       | line 10 (import); line 21 (annotation)             | Retained               |
+| `org.springframework.boot.test.context.SpringBootTest.WebEnvironment` (import)     | line 11                                            | Retained               |
+| `org.springframework.boot.test.web.client.TestRestTemplate` (import)               | line 12                                            | Retained               |
+| `org.springframework.http.HttpEntity` (import)                                     | line 13                                            | Retained               |
+| `org.springframework.http.HttpHeaders` (import)                                    | line 14                                            | Retained               |
+| `org.springframework.http.HttpMethod` (import)                                     | line 15                                            | Retained               |
+| `org.springframework.http.HttpStatus` (import)                                     | line 16                                            | Retained               |
+| `org.springframework.http.ResponseEntity` (import)                                 | line 17                                            | Retained               |
+| `java.time.LocalDateTime` (import)                                                 | line 19                                            | Retained               |
+
+### Imports to **delete**
+
+- `org.assertj.core.api.BDDAssertions.then`
+- `org.junit.jupiter.api.Test`
+- `org.springframework.test.context.jdbc.Sql`
+
+### Imports to **add**
+
+- `io.kotest.core.spec.style.DescribeSpec`
+- `io.kotest.extensions.spring.SpringExtension`
+- `io.kotest.matchers.shouldBe`
+- `javax.sql.DataSource` (for the `dataSource` `@Autowired` property)
+- `org.springframework.core.io.ClassPathResource` (for `ScriptUtils.executeSqlScript`)
+- `org.springframework.jdbc.datasource.DataSourceUtils` (joins the SQL load to any active transaction; Sprint-04 pattern)
+- `org.springframework.jdbc.datasource.init.ScriptUtils` (executes the SQL classpath script — same call Spring's `@Sql` machinery uses)
+
+---
+
+## JUnit + AssertJ → Kotest 1:1 mapping
+
+| Today (line)                                                            | Tomorrow                                                                                                |
+|--------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| `class SendMoneySystemTest {` (line 22)                                  | `class SendMoneySystemTest : DescribeSpec() {`                                                          |
+| `@Test @Sql("SendMoneySystemTest.sql") fun sendMoney() { ... }` (lines 30–50) | `init { describe("POST /accounts/send/{sourceAccountId}/{targetAccountId}/{amount}") { it("sends money between two accounts") { loadSql("SendMoneySystemTest.sql"); ... body ... } } }` |
+| `then(response.statusCode).isEqualTo(HttpStatus.OK)` (line 42–43)        | `response.statusCode shouldBe HttpStatus.OK`                                                            |
+| `then(sourceAccount().calculateBalance()).isEqualTo(initialSourceBalance.minus(transferredAmount()))` (line 45–46) | `sourceAccount().calculateBalance() shouldBe initialSourceBalance.minus(transferredAmount())`         |
+| `then(targetAccount().calculateBalance()).isEqualTo(initialTargetBalance.plus(transferredAmount()))` (line 48–49) | `targetAccount().calculateBalance() shouldBe initialTargetBalance.plus(transferredAmount())`         |
+| `import org.assertj.core.api.BDDAssertions.then` (line 7)                | Deleted                                                                                                 |
+| `import org.junit.jupiter.api.Test` (line 8)                             | Deleted                                                                                                 |
+| `import org.springframework.test.context.jdbc.Sql` (line 18)             | Deleted; replaced by in-leaf `loadSql(...)` helper call                                                 |
+| (no `lateinit var dataSource` today)                                     | Added: `@Autowired private lateinit var dataSource: DataSource`                                         |
+| (no `loadSql` helper today)                                              | Added: private `loadSql(resource: String)` member function — Sprint-04 pattern (`DataSourceUtils` + `ScriptUtils.executeSqlScript(ClassPathResource(...))`) |
+| (no `override fun extensions()` today)                                   | Added: `override fun extensions() = listOf(SpringExtension)`                                            |
+| Helper methods `sourceAccount`, `targetAccount`, `loadAccount`, `whenSendMoney`, `transferredAmount`, `sourceAccountId`, `targetAccountId` (lines 52–83) | Preserved verbatim as private class-body member functions                                               |
+
+---
+
+## Acceptance checks (mechanically verifiable by Evaluator)
+
+Each box is one shell command or one observable artifact. Categories
+mirror Sprints 03–05: Behavioral, Idiomatic, Architectural, Code Quality,
+plus a Scope gate.
+
+### Behavioral correctness
+
+- [ ] `./gradlew test --tests "*SendMoneySystemTest"` → exits 0.
+- [ ] `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"` → exits 0 (FQCN form; same suite as above but explicit).
+- [ ] `./gradlew test` (full suite) → exits 0; 0 failures across the suite.
+- [ ] Aggregate leaf-test count remains **16** (unchanged from the Sprint 05 baseline). `SendMoneySystemTest` had **1** leaf before and has **1** leaf after this sprint.
+- [ ] Parsed `build/test-results/test/TEST-io.reflectoring.buckpal.SendMoneySystemTest.xml` reports `tests="1"` and `failures="0"` and `errors="0"` and `skipped="0"`. The single round-trip leaf passes (HTTP 200 + correct balance deltas after the SQL load and POST).
+- [ ] The leaf body still asserts:
+  - HTTP `200 OK` on the response from `POST /accounts/send/1/2/500`.
+  - Source-account balance after = source-account balance before `- 500`.
+  - Target-account balance after = target-account balance before `+ 500`.
+
+### Architectural integrity
+
+- [ ] `./gradlew check` → exits 0 (full test task + ArchUnit
+  `DependencyRuleTests` continues to pass; Sprint 06 does not touch
+  ArchUnit infrastructure or production code).
+
+### Code quality — JUnit / AssertJ / Mockito residue is gone
+
+- [ ] `grep -nE "^import org\\.junit\\.jupiter" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1).
+- [ ] `grep -nE "@Test\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1).
+- [ ] `grep -nE "^import org\\.assertj\\.core" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1). The lone `BDDAssertions.then` import is gone; spec hard exit criterion: "No imports from `org.assertj.core.*` remain in this file."
+- [ ] `grep -nE "BDDAssertions" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1).
+- [ ] `grep -nE "^import org\\.mockito" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1).
+- [ ] `grep -nE "BDDMockito" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1).
+- [ ] `grep -nE "@MockBean\\b|@MockkBean\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1). This is a full-stack system test; nothing is mocked.
+- [ ] `grep -nE "\\bmockk\\b|\\bevery\\s*\\{|\\bverify\\s*\\{" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1). No MockK primitives belong in a system test.
+- [ ] `grep -nE "^import org\\.springframework\\.test\\.context\\.jdbc\\.Sql" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1). `@Sql` annotation and import removed per Sprint-04 fallback strategy.
+- [ ] `grep -nE "@Sql\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1). The `@Sql` annotation is replaced by the in-leaf `loadSql(...)` helper call.
+
+### Code quality — Kotest spec wrappers are present (positive gates)
+
+- [ ] `grep -nE "^class SendMoneySystemTest\\s*:\\s*DescribeSpec" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches exactly one line. Kotest spec wrapper.
+- [ ] `grep -nE "^import io\\.kotest\\.core\\.spec\\.style\\.DescribeSpec" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line.
+- [ ] `grep -nE "^import io\\.kotest\\.extensions\\.spring\\.SpringExtension" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line.
+- [ ] `grep -nE "^import io\\.kotest\\.matchers\\.shouldBe" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line.
+- [ ] `grep -nE "override fun extensions\\(\\)" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. Kotest Spring extension is registered.
+- [ ] `grep -nE "@SpringBootTest" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. Spec hard exit criterion: "The `@SpringBootTest(... RANDOM_PORT)` annotation is preserved."
+- [ ] `grep -nE "WebEnvironment\\.RANDOM_PORT" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. `RANDOM_PORT` web environment preserved verbatim.
+- [ ] `grep -nE "\\bdescribe\\(\\\"" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt | wc -l` → exactly **1**. One `describe(...)` container.
+- [ ] `grep -nE "\\bit\\(\\\"" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt | wc -l` → exactly **1**. One `it(...)` leaf (matches the spec's "the HTTP exchange via TestRestTemplate produces a 200 and balance deltas of −500 / +500" — a single leaf, same count as today's one `@Test`).
+- [ ] `grep -nE "\\bshouldBe\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt | wc -l` → at least **3**. The three `BDDAssertions.then(...).isEqualTo(...)` sites are replaced by three Kotest `shouldBe` assertions (HTTP status + two balance deltas).
+- [ ] `grep -nE "loadSql\\(\\\"SendMoneySystemTest\\.sql\\\"\\)" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. The `@Sql("SendMoneySystemTest.sql")` annotation is replaced by an in-leaf `loadSql(...)` call referencing the same SQL classpath resource.
+- [ ] `grep -nE "ScriptUtils\\.executeSqlScript" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. SQL is loaded via the same Spring API `@Sql` would use internally.
+- [ ] `grep -nE "ClassPathResource" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. SQL resource is resolved by classpath (same resolution semantics as `@Sql("SendMoneySystemTest.sql")`).
+
+### Code quality — HTTP shape and assertion semantics preserved
+
+- [ ] `grep -nE "TestRestTemplate" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. The `TestRestTemplate` `@Autowired` property is preserved.
+- [ ] `grep -nE "restTemplate\\.exchange" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. The HTTP round-trip is preserved.
+- [ ] `grep -nE "HttpMethod\\.POST" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. The HTTP method is preserved.
+- [ ] `grep -nE "/accounts/send/" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. The URL path is preserved.
+- [ ] `grep -nE "HttpStatus\\.OK" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. The 200-status assertion target is preserved.
+- [ ] `grep -nE "LoadAccountPort" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → matches at least one line. The outgoing port used to read balances is preserved.
+
+### Idiomatic Kotlin — no banned patterns, mandatory positive shape
+
+- [ ] `grep -nE "!!" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1). Literal double-bang non-null assertion. (`!=` does not match because the regex requires two adjacent `!`.)
+- [ ] `grep -nE "\\.shouldBe\\(" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` → no matches (exit 1). Only infix `actual shouldBe expected` is permitted — the method-call form `.shouldBe(...)` is banned.
+- [ ] `grep -n "lateinit var" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt | wc -l` → exactly **3**. The three `@Autowired` properties are `restTemplate`, `loadAccountPort`, and the Sprint-04-pattern `dataSource` (added to support programmatic SQL loading, since `@Sql` cannot survive on a Kotest lambda leaf).
+- [ ] `grep -nE "@Autowired\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt | wc -l` → exactly **3**. One `@Autowired` per `lateinit var` above.
+
+### Scope — only the one file in scope changed
+
+- [ ] `git diff --name-only HEAD -- src/` → exactly one line:
+  - `src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+
+  No other source file is modified.
+- [ ] `git diff --name-only HEAD -- src/main/` → empty (no production-code edits — protects the non-negotiable invariant).
+- [ ] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/` → empty (fixtures untouched).
+- [ ] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/archunit/` → empty (ArchUnit infrastructure untouched).
+- [ ] `git diff --name-only HEAD -- build.gradle` → empty (build-script untouched; Sprint 00 / Sprint 07 territory).
+- [ ] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/` → empty (Sprints 01–04 files untouched).
+- [ ] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/DependencyRuleTests.kt src/test/kotlin/io/reflectoring/buckpal/BuckPalApplicationTests.kt` → empty (Sprint 05 files untouched).
+- [ ] `git diff --name-only HEAD -- src/test/resources/` → empty (no SQL or resource edits — spec out-of-scope:
+  `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql` must not change).
+
+---
+
+## Verification commands the Generator will run before handoff
+
+In order, from the worktree root, with
+`JAVA_HOME=/Users/hannamil/Library/Java/JavaVirtualMachines/corretto-17.0.13/Contents/Home`:
+
+1. `./gradlew --no-daemon compileKotlin compileTestKotlin` → expect
+   `BUILD SUCCESSFUL`. (Sanity: no production-code edits, so
+   `compileKotlin` is a no-op; `compileTestKotlin` proves the rewrites
+   parse and that `io.kotest.core.spec.style.DescribeSpec`,
+   `io.kotest.extensions.spring.SpringExtension`,
+   `io.kotest.matchers.shouldBe`, `javax.sql.DataSource`,
+   `org.springframework.core.io.ClassPathResource`,
+   `org.springframework.jdbc.datasource.DataSourceUtils`, and
+   `org.springframework.jdbc.datasource.init.ScriptUtils` all resolve.)
+2. `./gradlew --no-daemon test --tests "*SendMoneySystemTest"` → expect
+   `BUILD SUCCESSFUL` and the TEST-*.xml file with `tests="1"`,
+   `failures="0"`, `errors="0"`, `skipped="0"`. The single round-trip
+   leaf passes: random-port server starts, SQL load inserts the eight
+   activity rows + two accounts, POST returns 200, source/target
+   balance deltas equal −500/+500.
+3. `./gradlew --no-daemon test` → expect `BUILD SUCCESSFUL`, aggregate
+   **16** leaf tests (same as Sprint 05 baseline), 0 failures.
+4. `./gradlew --no-daemon check` → expect `BUILD SUCCESSFUL` (full
+   test task + ArchUnit `DependencyRuleTests`).
+5. `git diff --name-only HEAD -- src/` → expect exactly one path:
+   - `src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+6. Negative greps (all expect "no output"):
+   - `grep -nE "^import org\\.junit\\.jupiter" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "@Test\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "^import org\\.assertj\\.core" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "BDDAssertions" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "^import org\\.mockito" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "@MockBean\\b|@MockkBean\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "\\bmockk\\b|\\bevery\\s*\\{|\\bverify\\s*\\{" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "^import org\\.springframework\\.test\\.context\\.jdbc\\.Sql" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "@Sql\\b" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "!!" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "\\.shouldBe\\(" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+7. Positive greps (all expect at least one match):
+   - `grep -nE "^class SendMoneySystemTest\\s*:\\s*DescribeSpec" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "override fun extensions\\(\\)" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "@SpringBootTest" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "WebEnvironment\\.RANDOM_PORT" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "loadSql\\(\\\"SendMoneySystemTest\\.sql\\\"\\)" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+   - `grep -nE "ScriptUtils\\.executeSqlScript" src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
+
+If any step fails, the Generator will diagnose and rerun. No red handoff.

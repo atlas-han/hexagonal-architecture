@@ -1,196 +1,189 @@
-# Sprint 1 Review
-
 STATUS: PASS
-WEIGHTED SCORE: 9.55
+
+# Sprint 01 Review
+
+WEIGHTED SCORE: 9.0
+
+Verdict: PASS. Both `AccountTest.kt` and `ActivityWindowTest.kt` are now
+`BehaviorSpec` classes with no JUnit / AssertJ / Mockito imports, the leaf-test
+budget is preserved at 4 + 3 = 7 (aggregate full suite still 16 tests, 0
+failures), the working-tree diff is exactly the two declared paths, and
+`./gradlew clean / compileKotlin compileTestKotlin / test / check` all return
+exit 0 from a cold build with the Corretto-17 JAVA_HOME the contract pins.
+
+## Sprint-scope hygiene (build.gradle separation)
+
+Context check: commit `753c1dc fix(kotest): sprint 00 follow-up — pin
+kotlinx-coroutines to 1.6.4 for Kotest runtime` landed before Sprint 01
+started. Verified that:
+
+- That commit modifies only `build.gradle` (+ run log), adding
+  `kotlinx-coroutines-{core,test}-{,-jvm}:1.6.4` (`git show --stat 753c1dc`).
+- Sprint 01's working-tree diff (`git diff --name-only HEAD`) lists exactly
+  the two `.kt` files in scope — `build.gradle` is **not** in this sprint's
+  diff. Scope separation is clean.
+- `git status` shows only the two `.kt` files as modified plus untracked
+  harness `contracts/` and `handoffs/` markdown — those are workspace
+  artifacts, not in-repo production scope.
 
 ## Criteria
 
 ### Behavioral Correctness — 10/10 [threshold 9]
 
-Re-ran every mandatory command end-to-end with
-`JAVA_HOME=/Users/hannamil/Library/Java/JavaVirtualMachines/corretto-17.0.13/Contents/Home`.
+Independently re-ran (all from the worktree root with
+`JAVA_HOME=/Users/hannamil/Library/Java/JavaVirtualMachines/corretto-17.0.13/Contents/Home`):
 
-- `./gradlew clean` → `BUILD SUCCESSFUL in 312ms`.
-- `./gradlew compileKotlin compileTestKotlin` → `BUILD SUCCESSFUL in 1s`
-  (no Kotlin warnings; one pre-existing **Java** warning on
-  `src/main/java/io/reflectoring/buckpal/account/domain/Account.java:23`
-  about `@Getter`/`getId()` collision — this is out-of-scope Java code
-  carried over from Sprint 0, not introduced by Sprint 1).
-- `./gradlew test` → `BUILD SUCCESSFUL`. Aggregated test counts from
-  `build/test-results/test/TEST-*.xml`:
-  - `SendMoneyServiceTest` 2, `SendMoneyControllerTest` 1,
-    `AccountPersistenceAdapterTest` 2, `BuckPalApplicationTests` 1,
-    `AccountTest` 4, `SendMoneySystemTest` 1, `ActivityWindowTest` 3,
-    `DependencyRuleTests` 2 → **16/16 pass, 0 failures, 0 errors, 0
-    skipped**.
-- `./gradlew check` → `BUILD SUCCESSFUL` (`check UP-TO-DATE`, picks up
-  ArchUnit).
-- `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"`
-  → green (2/2).
-- `./gradlew test --tests "io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest"`
-  → green (2/2). This is the bean-resolution sentinel — `@UseCase`
-  meta-annotation still produces a Spring-managed bean after the Kotlin
-  rewrite.
+| Command | Exit | Notes |
+|---------|------|-------|
+| `./gradlew --no-daemon clean` | 0 | BUILD SUCCESSFUL in 2s. |
+| `./gradlew --no-daemon compileKotlin compileTestKotlin` | 0 | BUILD SUCCESSFUL in 4s — both rewrites parse against the existing fixtures. |
+| `./gradlew --no-daemon test --tests "io.reflectoring.buckpal.account.domain.*"` | 0 | BUILD SUCCESSFUL in 5s; only `AccountTest` (4) + `ActivityWindowTest` (3) executed. |
+| `./gradlew --no-daemon test` (full) | 0 | BUILD SUCCESSFUL in 10s; aggregate 16 tests, 0 failures. |
+| `./gradlew --no-daemon check` | 0 | BUILD SUCCESSFUL — ArchUnit `DependencyRuleTests` still passes. |
 
-**Weakness (must record per skeptical-review rule):** No existing test
-exercises the named form `@UseCase("explicitBeanName")`, so the
-`@get:AliasFor(annotation = Component::class)` plumbing is not *runtime*
-proven — only statically by inspection. The Generator acknowledges this
-in handoff §2. Acceptable for Sprint 1 (the spec defers such tests to
-Sprint 4), but flagged as a latent failure mode if a future sprint
-introduces a `@UseCase("name")` usage and skips a smoke test.
+Per-class `<testsuite>` attributes from `build/test-results/test/TEST-*.xml`:
 
-### Idiomatic Kotlin — 9/10 [threshold 7]
+```
+io.reflectoring.buckpal.account.domain.AccountTest         tests=4 skipped=0 failures=0 errors=0
+io.reflectoring.buckpal.account.domain.ActivityWindowTest  tests=3 skipped=0 failures=0 errors=0
+io.reflectoring.buckpal.account.adapter.in.web.SendMoneyControllerTest tests=1 ...
+io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest tests=2 ...
+io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest tests=2 ...
+io.reflectoring.buckpal.SendMoneySystemTest tests=1 ...
+io.reflectoring.buckpal.BuckPalApplicationTests tests=1 ...
+io.reflectoring.buckpal.DependencyRuleTests tests=2 ...
+```
 
-Read all 4 converted files end-to-end.
+Aggregate `tests=` = 4+1+2+2+3+1+1+2 = **16**, identical to the Sprint 00
+baseline. Per-leaf names in the domain XML reports map 1-to-1 with the
+contract's leaf-test table ("Then: calculates balance", "Then: withdrawal
+succeeds", "Then: withdrawal fails when insufficient funds", "Then: deposit
+succeeds", "Then: calculates start timestamp", "Then: calculates end
+timestamp", "Then: calculates per-account balance"). No engine double-discovery.
 
-Good idioms confirmed:
+### Idiomatic Kotlin — 8/10 [threshold 7]
 
-- `UseCase.kt:6-13`, `WebAdapter.kt:6-13`, `PersistenceAdapter.kt:6-13` —
-  all three meta-annotations carry the full required quartet
-  (`@Target(AnnotationTarget.CLASS)`,
-  `@Retention(AnnotationRetention.RUNTIME)`, `@MustBeDocumented`,
-  `@Component`), and the `@AliasFor` is site-targeted as
-  `@get:AliasFor(annotation = Component::class)` — i.e. landing on the
-  synthetic getter, exactly as the contract demands. This is the
-  critical Spring-on-Kotlin trap that the contract called out and the
-  Generator did not fall into.
-- `SelfValidating.kt:7` — `abstract class SelfValidating<T>` (not `open
-  class`), matching the contract's deliberate choice.
-- `SelfValidating.kt:9` — `private val validator` initialized at
-  declaration site. No `lateinit`, no construction-order ambiguity.
-- `SelfValidating.kt:14` — `protected fun validateSelf()` preserves the
-  original Java visibility.
-- `SelfValidating.kt:15-16` — `@Suppress("UNCHECKED_CAST")` is scoped to
-  the single statement that performs the cast, not the function and not
-  the class. This is about as narrow as Kotlin's `@Suppress` placement
-  allows without extracting the cast to its own one-liner.
-- No `var`, `!!`, `lateinit`, `Optional<>`, or `@Autowired` in the 4
-  files (`grep -nE " var "` / `grep -Rn "!!"` / `grep -Rn "lateinit"` /
-  `grep -Rn "Optional"` / `grep -Rn "@Autowired"` against
-  `src/main/kotlin/io/reflectoring/buckpal/common` — all empty).
-- No `import lombok` in `src/main/kotlin` (grep exit 1 = no match).
+Good patterns (sampling all 2 in-scope files plus the original JUnit form):
 
-**Weaknesses (concrete):**
+- `AccountTest.kt:12` and `ActivityWindowTest.kt:9` — clean
+  `class XTest : BehaviorSpec({ ... })` declaration; no `init { }`, no
+  redundant constructor.
+- `AccountTest.kt:35,61,87,113` and `ActivityWindowTest.kt:24,36,60,61` —
+  infix `actual shouldBe expected` exclusively; the negative grep for
+  `.shouldBe(` returns no hits.
+- `AccountTest.kt:60,86,112` — `shouldHaveSize` used in infix form
+  (`account.activityWindow.getActivities() shouldHaveSize 3`).
+- `AccountTest.kt:59,85,111` — `shouldBeTrue()` / `shouldBeFalse()` used as
+  member-call form on a `Boolean` receiver; correct usage of
+  `io.kotest.matchers.booleans.*`.
+- No `!!` operators, no `lateinit var`, no `companion object`, no
+  `@Autowired` field injection (none expected in a domain unit test).
+- `Money.of(longLiteral)` is used on both sides of every `shouldBe`, so the
+  `BigDecimal` scale-sensitivity caveat in the contract is correctly
+  side-stepped — no behavior drift.
 
-1. `SelfValidating.kt:15` — `@Suppress("UNCHECKED_CAST")` is placed on
-   the *statement* (line above `val violations = ...`), which suppresses
-   warnings for the entire RHS expression `validator.validate(this as
-   T)`. Narrower placement: split into
-   `@Suppress("UNCHECKED_CAST") val self = this as T` then
-   `validator.validate(self)`. Net only a style nit, since the
-   suppression already touches only one line.
-2. The three meta-annotation files are near-verbatim duplicates differing
-   only by class name. A `typealias` / shared annotation-set extraction
-   isn't idiomatic Kotlin for meta-annotations (and would obscure the
-   Spring stereotype intent), so I'm not asking for it — but the lack of
-   any DRY abstraction is the visible cost of the 1:1 conversion
-   approach, worth naming.
-3. The `value: String = ""` annotation parameter uses an empty-string
-   sentinel rather than a Kotlin-native nullable (`String? = null`).
-   This *is* correct (Spring's `@AliasFor` expects the same empty-string
-   convention Java uses), but it's a place a less careful conversion
-   might have "improved" and broken Spring — worth recording for future
-   sprints.
+Weak spots worth flagging (kept below the failure threshold but the
+Generator should note for next sprints):
 
-Holding back the last point because none of the above are wrong, just
-"could be one click tighter."
+- `ActivityWindowTest.kt:11–13` introduces three `() -> LocalDateTime`
+  lambda wrappers (`val startDate: () -> LocalDateTime = { ... }`) so call
+  sites can read `startDate()`. `LocalDateTime.of(...)` is pure and value-
+  typed, so plain `val startDate = LocalDateTime.of(...)` would have read
+  more idiomatically; the lambda form is a stylistic carry-over from the
+  Java helper-method shape with no functional benefit. Not a defect — the
+  contract explicitly allows either form — but the more idiomatic Kotlin
+  choice for Sprint 02+ helpers is the plain `val`.
+- `AccountTest.kt:14–116` repeats the `defaultAccount() ...build()`
+  scaffolding inside every leaf (4 near-identical blocks). The contract
+  rationale ("per-leaf isolation, no shared mutable state") justifies this,
+  but a `val newAccount = { ... }` factory inside the enclosing
+  `given(...)` block — re-evaluated per leaf by Kotest — would have removed
+  ~60 lines of duplication while preserving isolation. Style only.
+- The four `` `when`(...) `` builders carry obligatory back-ticks. The
+  contract pre-justified this; calling it out here only so the reader is
+  not surprised when the diff lights up. Kotest 5.5.5 does not expose a
+  `When` alias, so this is the right call at this version.
 
 ### Architectural Integrity — 10/10 [threshold 9]
 
-- Package path `io.reflectoring.buckpal.common` is preserved under
-  `src/main/kotlin/io/reflectoring/buckpal/common/` (`find
-  src/main/kotlin -type f` confirms the 4 expected files plus
-  `.gitkeep`).
-- All three annotation FQNs are byte-identical to the Java originals:
-  `io.reflectoring.buckpal.common.UseCase`,
-  `io.reflectoring.buckpal.common.WebAdapter`,
-  `io.reflectoring.buckpal.common.PersistenceAdapter`. ArchUnit's
-  `HexagonalArchitecture` rule keys off these exact FQNs (via the
-  `@UseCase` / `@WebAdapter` / `@PersistenceAdapter` annotated classes
-  in the still-Java account package) — no rename, no relocation.
-- `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"`
-  → green (2/2 tests). Full ArchUnit suite passes via `./gradlew check`.
-- `git diff --name-only HEAD` shows only the 4 `.java` deletions under
-  `common/`. Untracked files are exactly the 4 `.kt` files plus the
-  harness contract/handoff. No other production file changed. No test
-  modified. **No auto-FAIL triggers.**
+- `./gradlew check` exits 0; `DependencyRuleTests` (`tests=2 failures=0`)
+  picked up by both `test --tests` filter and the full `check` run.
+- `git diff --name-only HEAD -- src/main/` is empty — production code is
+  byte-identical. Hexagonal package layout under
+  `src/main/kotlin/io/reflectoring/buckpal/**` is untouched.
+- `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/`
+  is empty — fixtures (`AccountTestData.kt`, `ActivityTestData.kt`) untouched.
+- `find src/main/java src/test/java -name '*.java'` returns nothing
+  (directories do not exist) — consistent with the Kotlin-migration
+  baseline; nothing crept back.
+- `grep -RIn "lombok" src/main/kotlin src/test/kotlin` returns no hits
+  (Lombok was retired in the prior Kotlin migration sprints; nothing
+  resurfaced).
+- Migrated specs stay in package `io.reflectoring.buckpal.account.domain`
+  (verified in line 1 of each file).
+- The Sprint 00 follow-up commit `753c1dc` (`kotlinx-coroutines-{core,test}`
+  to 1.6.4) is a build-script-only change committed separately and is NOT
+  part of Sprint 01's diff, so it does not breach Sprint 01's "files in
+  scope" boundary. The handoff calls this out explicitly.
 
-**Weakness:** The `@Component` annotation is duplicated on each of the
-three meta-annotations rather than relying on a single composed
-stereotype. This faithfully mirrors the Java source (per contract item
-2), but means that any future drift on one annotation (e.g. someone adds
-a `@Scope`) won't auto-propagate to the others. Pure observation, not a
-defect.
+### Code Quality — 8/10 [threshold 7]
 
-### Code Quality — 9/10 [threshold 7]
-
-- Kotlin compiler warnings on the 4 new files: **0**. Verified with the
-  exact command from the contract:
-  `./gradlew clean compileKotlin --warning-mode all 2>&1 | grep -E "^w: |warning:" | grep -v "Kotlin Daemon" | grep -v "Deprecated Gradle" | grep -v "deprecation" | wc -l` → `0`.
-- Filenames match the contained type (`UseCase.kt` contains
-  `annotation class UseCase`, etc.).
-- Imports are sorted and minimal — only `AliasFor` and `Component` in
-  the three meta-annotation files; only `javax.validation.*` in
-  `SelfValidating.kt`. No wildcard imports.
-- No commented-out code, no orphan TODOs.
-- KDoc on `validateSelf` (`SelfValidating.kt:11-13`) is preserved from
-  the Java original.
-
-**Weaknesses:**
-
-1. The KDoc on `SelfValidating.validateSelf` is the only doc comment in
-   the four files. The three meta-annotations have **no** KDoc
-   explaining their hexagonal-architecture intent — the Java versions
-   were equally undocumented, so this is preserved-not-degraded, but a
-   one-line `/** Marker for inbound use-case services. */` per
-   annotation would have been a cheap quality win for an "ARC docs"
-   pass.
-2. Empty Java directory `src/main/java/io/reflectoring/buckpal/common/`
-   remains. Contract explicitly defers cleanup to Sprint 9, so this is
-   compliant — but it's visible code-tree clutter for the duration of
-   Sprints 2-8.
-
-Both are minor; neither moves the score below 9.
+- File headers are minimal and ordered correctly: package, then imports
+  grouped (Kotest core, Kotest matchers, project domain, project test
+  fixtures, Java stdlib). No wildcard imports.
+- Test names in the XML reports are descriptive sentences
+  ("withdrawal fails when insufficient funds", "calculates per-account
+  balance"). This is a strict improvement over the camelCase
+  `withdrawalFailure` JUnit names.
+- Two minor style nits (do not affect pass/fail):
+  - `AccountTest.kt:17,42,68,94` repeat `val accountId = AccountId(1L)`
+    four times. Hoisting it to the enclosing `given(...)` `val` would
+    have been clearer. Not a defect, but a low-effort win.
+  - `ActivityWindowTest.kt:11–13` — see Idiomatic Kotlin note about the
+    `() -> LocalDateTime` lambdas vs. plain `val`s.
+- No commented-out code, no TODO/FIXME markers, no dead imports.
 
 ## Bugs found
 
+None. The migration is functionally and architecturally sound; the items
+flagged above are style observations, not defects.
+
 | File:Line | Defect | Suggested fix |
 |-----------|--------|---------------|
-| (none)    | No correctness defects, security issues, or behavior regressions found in the 4 converted files. Style observations are under Code Quality / Idiomatic Kotlin, not here. | — |
+| (none)    | (none) | (none)        |
 
 ## Contract checklist
 
-- [PASS] `find src/main/java/io/reflectoring/buckpal/common -name '*.java'` → 0 (verified, empty output).
-- [PASS] `find src/main/kotlin/io/reflectoring/buckpal/common -name '*.kt' -not -name '.gitkeep'` → 4 (UseCase, WebAdapter, PersistenceAdapter, SelfValidating).
-- [PASS] `grep -R "import lombok" src/main/kotlin/io/reflectoring/buckpal/common` → empty (grep exit 1).
-- [PASS-WITH-NOTE] **`grep -l "@AliasFor" src/main/kotlin/io/reflectoring/buckpal/common/*.kt | wc -l` → 3** — literal result is **0**, not 3. The Generator's dispute is **valid**: the actual usage `@get:AliasFor` uses the site-target prefix, which consumes the `@` and renders the literal `@AliasFor` substring absent. The semantically intended check (each of the 3 meta-annotation files uses `AliasFor`) is satisfied: `grep -l "AliasFor"` returns the 3 expected files. The CRITICAL `@get:AliasFor` check (next bullet) passes 3/3. I am accepting this acceptance check as **semantically met** but flagging the contract as containing a literal-check bug. **Action for future contracts:** Phase A reviews of subsequent sprints must reject `grep -l "@<Annotation>"` patterns when the agreed-upon Kotlin idiom is `@<site-target>:<Annotation>`; use `grep -l "<Annotation>"` (no `@`) or grep for the site-targeted form directly. My Phase A `// EVALUATOR:` note caught the *warnings* check but missed this one — recording so I don't repeat it.
-- [PASS] `grep "annotation = Component::class" src/main/kotlin/io/reflectoring/buckpal/common/*.kt | wc -l` → 3 (one per meta-annotation).
-- [PASS] **`grep "@get:AliasFor" src/main/kotlin/io/reflectoring/buckpal/common/*.kt | wc -l` → 3** — CRITICAL check, satisfied. Without `@get:`, Spring would silently ignore the alias; the Generator got the site target right on all three.
-- [PASS] `./gradlew clean compileKotlin compileTestKotlin` → BUILD SUCCESSFUL (re-run independently).
-- [PASS] `./gradlew test` → BUILD SUCCESSFUL, 16/16 tests pass (XML aggregate: 2+1+2+1+4+1+3+2=16, zero failures/errors/skipped).
-- [PASS] `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"` → green.
-- [PASS] `./gradlew test --tests "io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest"` → green (Spring still resolves `@UseCase`-annotated services).
-- [PASS] Kotlin compiler warnings on the 4 new files → 0, using the concrete invocation I supplied in the Phase A `// EVALUATOR:` note. The Java `@Getter`/`getId()` warning on `Account.java:23` is out-of-scope Java code and does not count against Sprint 1.
+| # | Acceptance check | Result | Evidence |
+|---|------------------|--------|----------|
+| 1 | `grep -E "^class AccountTest\s*:\s*BehaviorSpec" AccountTest.kt` matches one line | PASS | `class AccountTest : BehaviorSpec({` printed; exit 0 |
+| 2 | `grep -E "^class ActivityWindowTest\s*:\s*BehaviorSpec" ActivityWindowTest.kt` matches one line | PASS | `class ActivityWindowTest : BehaviorSpec({` printed; exit 0 |
+| 3 | `grep -n "org.junit.jupiter"` both files → no matches | PASS | empty output; exit 1 |
+| 4 | `grep -n "org.assertj.core"` both files → no matches | PASS | empty output; exit 1 |
+| 5 | `grep -n "@Test"` both files → no matches | PASS | empty output; exit 1 |
+| 6 | Required Kotest imports present in `AccountTest.kt` | PASS | lines 3–7: `BehaviorSpec`, `shouldBeFalse`, `shouldBeTrue`, `shouldHaveSize`, `shouldBe` |
+| 7 | Required Kotest imports present in `ActivityWindowTest.kt` | PASS | lines 3–4: `BehaviorSpec`, `shouldBe` (no boolean/size matchers needed — none used in body) |
+| 8 | `git diff --name-only HEAD -- src/ build.gradle` lists exactly the two domain test files | PASS | exactly two lines printed (the two `.kt` paths) |
+| 9 | `git diff --name-only HEAD -- src/main/` empty | PASS | empty output |
+| 10 | `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/` empty | PASS | empty output |
+| 11 | `./gradlew test --tests "io.reflectoring.buckpal.account.domain.*"` exits 0 | PASS | BUILD SUCCESSFUL in 5s |
+| 12 | `TEST-...AccountTest.xml` reports `tests="4"` / 0 failures / 0 errors / 0 skipped | PASS | `<testsuite name="...AccountTest" tests="4" skipped="0" failures="0" errors="0" ...>` |
+| 13 | `TEST-...ActivityWindowTest.xml` reports `tests="3"` / 0 failures / 0 errors / 0 skipped | PASS | `<testsuite name="...ActivityWindowTest" tests="3" skipped="0" failures="0" errors="0" ...>` |
+| 14 | `./gradlew test` full suite exits 0; aggregate leaf-test count is 16 | PASS | 4+1+2+2+3+1+1+2 = 16; 0 failures |
+| 15 | `./gradlew check` exits 0 (ArchUnit included) | PASS | BUILD SUCCESSFUL; `DependencyRuleTests` 2/0/0/0 |
+| 16 | No `lateinit` / `!!` in either file | PASS | `grep -nE "(\blateinit\b|!!)"` → empty, exit 1 |
+| 17 | Only infix `shouldBe`, never `.shouldBe(` | PASS | `grep -nE "\.shouldBe\("` → empty, exit 1 |
+
+All 17 acceptance checks (the 16 in the contract plus my own additional
+build.gradle scope check) pass.
 
 ## Verdict
 
-Sprint 1 is a clean PASS at **9.55 weighted**, comfortably clear of every
-hard floor (BC 10 ≥ 9, IK 9 ≥ 7, AI 10 ≥ 9, CQ 9 ≥ 7). The Generator
-nailed the one trap that the contract called out — `@get:AliasFor` site
-targeting on all 3 meta-annotations — and produced 4 files that are
-idiomatic Kotlin rather than transliterated Java (correct meta-annotation
-quartet on each annotation, `abstract class` with `val` field initializer
-on `SelfValidating`, narrowly scoped `@Suppress("UNCHECKED_CAST")`, no
-`var`/`!!`/`lateinit`/`Optional`/`@Autowired`). All 16 tests pass,
-ArchUnit is green, kotlinc warnings on Kotlin sources are zero, the diff
-is bounded exactly to the declared scope (4 .java deletions + 4 .kt
-additions under `common/`), and no test was modified — so no auto-FAIL
-triggers. The Generator's dispute of the
-`grep -l "@AliasFor" ... | wc -l → 3` literal check is **valid**: the
-literal is unsatisfiable given the agreed-upon `@get:AliasFor` idiom, and
-the semantically equivalent checks (`grep -l "AliasFor"` returns the 3
-files; the CRITICAL `@get:AliasFor` line-count check returns 3) both
-pass. I'm recording the contract bug as a Phase-A miss on my part and
-will reject the same pattern in subsequent sprint contracts.
-
+Sprint 01 cleanly converts the two pure-domain unit tests to Kotest
+`BehaviorSpec` form, preserves the leaf-test count exactly (4 + 3), keeps
+production code and fixtures byte-identical, and survives the full
+`./gradlew check` run (including ArchUnit). The Sprint 00 follow-up
+hot-fix (`753c1dc`) that added `kotlinx-coroutines-{core,test}-{,-jvm}:1.6.4`
+to `build.gradle` lives in its own commit and is correctly excluded from
+this sprint's working-tree diff — scope separation between Sprint 00 and
+Sprint 01 is intact. Sprint 01 is **PASS**.

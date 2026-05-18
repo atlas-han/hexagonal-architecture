@@ -2,13 +2,12 @@ package io.reflectoring.buckpal
 
 import com.tngtech.archunit.core.importer.ClassFileImporter
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
+import io.kotest.core.spec.style.FunSpec
 import io.reflectoring.buckpal.archunit.HexagonalArchitecture
-import org.junit.jupiter.api.Test
 
-class DependencyRuleTests {
+class DependencyRuleTests : FunSpec({
 
-    @Test
-    fun validateRegistrationContextArchitecture() {
+    test("validateRegistrationContextArchitecture") {
         HexagonalArchitecture.boundedContext("io.reflectoring.buckpal.account")
 
             .withDomainLayer("domain")
@@ -31,8 +30,7 @@ class DependencyRuleTests {
             )
     }
 
-    @Test
-    fun testPackageDependencies() {
+    test("testPackageDependencies") {
         noClasses()
             .that()
             .resideInAPackage("io.reflectoring.reviewapp.domain..")
@@ -44,4 +42,4 @@ class DependencyRuleTests {
                     .importPackages("io.reflectoring.reviewapp.."),
             )
     }
-}
+})
