@@ -10,3 +10,4 @@
 2026-05-17T14:54:09Z | sprint-03 | commit | 426e129 — SendMoneyControllerTest to Kotest DescribeSpec + @MockkBean + SpringExtension
 2026-05-17T17:02:51Z | sprint-04 | commit | 438fdde — AccountPersistenceAdapterTest to Kotest DescribeSpec + @DataJpaTest (in-leaf ScriptUtils SQL load via DataSourceUtils)
 2026-05-17T20:12:38Z | sprint-05 | commit | 6305169 — DependencyRuleTests (FunSpec) + BuckPalApplicationTests (DescribeSpec). Review authored by orchestrator after two consecutive Evaluator sub-agent idle/socket timeouts; mandatory commands re-run directly with passing results.
+2026-05-17T20:27:42Z | sprint-06 | commit | 2f9062a — SendMoneySystemTest to Kotest DescribeSpec + @SpringBootTest (RANDOM_PORT), in-leaf SQL load
