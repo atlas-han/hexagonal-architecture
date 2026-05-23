@@ -1,5 +1,6 @@
 package io.reflectoring.buckpal.account.application.service
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.shouldBe
@@ -148,6 +149,79 @@ class SendMoneyServiceTest : BehaviorSpec({
                     sourceAccountId,
                     targetAccountId,
                 )
+            }
+        }
+    }
+
+    given("a command whose amount exceeds the maximum transfer threshold") {
+        `when`("sending money") {
+            then("a ThresholdExceededException is thrown and no account is loaded") {
+                val loadAccountPort = mockk<LoadAccountPort>()
+                val accountLock = mockk<AccountLock>(relaxUnitFun = true)
+                val updateAccountStatePort = mockk<UpdateAccountStatePort>(relaxUnitFun = true)
+                val sendMoneyService = SendMoneyService(
+                    loadAccountPort,
+                    accountLock,
+                    updateAccountStatePort,
+                    MoneyTransferProperties(Money.of(100L)),
+                )
+
+                val command = SendMoneyCommand(
+                    AccountId(41L),
+                    AccountId(42L),
+                    Money.of(500L),
+                )
+
+                shouldThrow<ThresholdExceededException> {
+                    sendMoneyService.sendMoney(command)
+                }
+
+                verify(exactly = 0) { loadAccountPort.loadAccount(any(), any()) }
+                verify(exactly = 0) { accountLock.lockAccount(any()) }
+                verify(exactly = 0) { accountLock.releaseAccount(any()) }
+                verify(exactly = 0) { updateAccountStatePort.updateActivities(any()) }
+            }
+        }
+    }
+
+    given("a withdrawal that succeeds but a deposit that fails") {
+        `when`("sending money") {
+            then("the result is false, both locks are acquired and released, and no activities are persisted") {
+                val loadAccountPort = mockk<LoadAccountPort>()
+                val accountLock = mockk<AccountLock>(relaxUnitFun = true)
+                val updateAccountStatePort = mockk<UpdateAccountStatePort>(relaxUnitFun = true)
+                val sendMoneyService = SendMoneyService(
+                    loadAccountPort,
+                    accountLock,
+                    updateAccountStatePort,
+                    moneyTransferProperties(),
+                )
+
+                val sourceAccountId = AccountId(41L)
+                val sourceAccount = givenAnAccountWithId(loadAccountPort, sourceAccountId)
+
+                val targetAccountId = AccountId(42L)
+                val targetAccount = givenAnAccountWithId(loadAccountPort, targetAccountId)
+
+                givenWithdrawalWillSucceed(sourceAccount)
+                every { targetAccount.deposit(any(), any()) } returns false
+
+                val money = Money.of(500L)
+                val command = SendMoneyCommand(
+                    sourceAccountId,
+                    targetAccountId,
+                    money,
+                )
+
+                val success = sendMoneyService.sendMoney(command)
+
+                success shouldBe false
+
+                verify { accountLock.lockAccount(sourceAccountId) }
+                verify { accountLock.lockAccount(targetAccountId) }
+                verify { accountLock.releaseAccount(sourceAccountId) }
+                verify { accountLock.releaseAccount(targetAccountId) }
+                verify(exactly = 0) { updateAccountStatePort.updateActivities(any()) }
             }
         }
     }
