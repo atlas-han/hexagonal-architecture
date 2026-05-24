@@ -307,7 +307,16 @@ git commit -m "chore(harness): record migration learnings and wrap-up"
 - sprint 별 커밋 SHA + 한 줄 요약
 - 신규 산출물 경로: `workspace/learnings.md`, `workspace/wrap-up.md`
 - 머지/푸시 다음 단계 제안 (오케스트레이터가 직접 머지하지 않음).
-  `wrap-up.md` §5 의 체크리스트를 그대로 인용해도 좋다.
+  `wrap-up.md` §5 의 체크리스트를 그대로 인용하되, 반드시 다음 **linear
+  merge** 명령어를 포함한다 (merge commit 생성 금지 — repo 가 `merge.ff=only`
+  로 설정되어 있으므로 --no-ff merge 는 거부됨):
+  ```
+  git switch harness/kotlin-migration
+  git rebase main
+  git switch main
+  git merge --ff-only harness/kotlin-migration
+  git worktree remove .claude/worktrees/harness/kotlin-migration
+  ```
 
 그 후 `result: kotlin migration complete — N sprints + retrospective,
 branch harness/kotlin-migration ready for review` 로 종료.

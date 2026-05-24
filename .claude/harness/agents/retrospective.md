@@ -234,9 +234,13 @@ automatically — they require human judgment.>
 
 - [ ] Review the diff: `git log --oneline main..<branch>` and
       `git diff main...<branch>`.
-- [ ] If satisfied, merge or rebase onto `main`:
-      `git checkout main && git merge --no-ff <branch>`
-      (or `git rebase main && git push`).
+- [ ] Rebase onto `main` for a linear history, then fast-forward merge:
+      ```
+      git switch <branch>
+      git rebase main
+      git switch main
+      git merge --ff-only <branch>
+      ```
 - [ ] Delete the worktree if you are done with it:
       `git worktree remove .claude/worktrees/harness/kotlin-migration`.
 - [ ] Decide what to do with deferred work — see `learnings.md` §5.
