@@ -306,11 +306,86 @@ commit) 에 `.claude/harness/workspace/logs/run-log.md` 에 한 줄을 append:
 - 오케스트레이터는 production 코드를 직접 편집·삭제하지 않는다.
 - 오케스트레이터는 sub-agent 의 출력 텍스트만 신뢰하지 말고, 항상 **산출물
   파일의 상태**(존재, 첫 줄 STATUS) 로 다음 단계를 결정한다.
-- 동시에 두 sub-agent 를 실행하지 않는다 (한 sprint = 한 에이전트 진행 중).
+- **sprint 간 순차 의존 규칙**: 한 sprint 가 PASS 커밋되기 전까지 다음 sprint
+  를 시작하지 않는다. Generator / Evaluator 를 sprint 간에 병렬 실행하지 않는다.
 - worktree 를 자동 삭제·force-push·reset --hard 하지 않는다.
 - 사용자가 명시적으로 허락하지 않은 한 원격에 push 하지 않는다.
 - 최대 재시도 횟수(기본 3) 를 넘기면 silent 진행 금지. 반드시 `needs input:`
   으로 정지하고 어떤 sprint·어떤 phase 에서 막혔는지 알린다.
+
+## 9. 병렬 처리 규칙 (Agent teams)
+
+자세한 규칙은 `.claude/skills/parallel-agent/RULES.md` 를 참조.
+오케스트레이터가 적용하는 핵심 규칙은 다음과 같다.
+
+### 9.1 허용되는 병렬 실행
+
+**A. Pre-flight 파일 읽기**
+
+§0 + §2 진입 시 필요한 여러 파일을 한 메시지에서 병렬 Read 로 읽는다:
+
+```
+# 한 메시지에 동시 Read 호출
+Read(spec/product-spec.md)
+Read(reviews/sprint-NN-review.md)   # 마지막 완료 sprint
+Read(logs/run-log.md)
+```
+
+**B. Evaluator 병렬 검증 (§3.4)**
+
+contract 의 `Acceptance checks` 를 독립 그룹으로 묶어 병렬 Agent 로 분산:
+
+```
+# compile 먼저 (다른 체크의 전제)
+Agent("eval-compile") → ./gradlew compileKotlin compileTestKotlin
+
+# compile PASS 후 병렬 실행
+Agent("eval-tests",    run_in_background=True) → ./gradlew test
+Agent("eval-archunit", run_in_background=True) → ./gradlew check
+Agent("eval-lombok",   run_in_background=True) → grep -R "import lombok" ...
+Agent("eval-idioms",   run_in_background=True) → @Autowired, Optional<, !! scans
+```
+
+모든 병렬 에이전트가 완료된 후 결과를 합산해 `sprint-NN-review.md` 를 작성.
+하나라도 FAIL 이면 전체 sprint FAIL.
+
+**C. Final verification 병렬화 (§4)**
+
+```
+Sequential: ./gradlew clean
+Parallel after clean:
+  Bash("./gradlew build")
+  Bash("./gradlew check")
+  Bash("grep -R 'import lombok' src/")
+```
+
+**D. Retrospective 읽기 (§4.5 Phase L)**
+
+Phase L 시작 시 모든 sprint review 파일을 병렬 Read 한 후 분석:
+
+```
+# 한 메시지에 모든 review를 병렬 읽기
+Read(reviews/sprint-00-review.md)
+Read(reviews/sprint-01-review.md)
+...
+Read(reviews/sprint-NN-review.md)
+```
+
+### 9.2 금지된 병렬 실행
+
+| 금지 대상                         | 이유                                  |
+|----------------------------------|---------------------------------------|
+| Sprint N 과 Sprint N+1 동시 실행  | 빌드 의존성 — N+1 은 N 의 class 파일 필요 |
+| 여러 Generator 동시 실행          | 같은 파일에 쓸 위험                    |
+| 병렬 `git commit`                | git index 동시 접근 불가               |
+| `./gradlew build` 동시 2개 이상  | Gradle 데몬 포트 충돌 가능             |
+
+### 9.3 병렬 결과 수집 원칙
+
+1. 병렬로 spawn 한 모든 Agent 가 완료될 때까지 다음 단계로 넘어가지 않는다.
+2. 각 Agent 의 결과는 **산출물 파일**로 확인한다 (출력 텍스트만 신뢰하지 않음).
+3. 타임아웃(10분): Agent 가 응답하지 않으면 FAIL 로 처리하고 `needs input:` 으로 정지.
+4. 병렬 Agent 가 `run-log.md` 에 append 할 경우 타임스탬프 정렬로 읽는다.
 
 ## 8. 재개 모드 의사코드
 

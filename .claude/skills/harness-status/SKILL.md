@@ -54,6 +54,9 @@ Branch:   harness/kotlin-migration (<N> sprint commits)
 Next action: re-invoke Generator on sprint-02 with reviews/sprint-02-review.md.
 ```
 
+For more detailed example outputs and scenario descriptions, see
+`.claude/skills/harness-status/EXAMPLES.md`.
+
 ## Rules
 
 - Do not edit any harness state file. This skill is **read-only**.
