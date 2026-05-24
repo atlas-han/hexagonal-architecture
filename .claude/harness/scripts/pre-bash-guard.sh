@@ -16,10 +16,11 @@ fi
 [ -n "$command_str" ] || exit 0
 
 # Block: force-push (may overwrite remote history)
-if echo "$command_str" | grep -qE 'git\s+push\s+.*(-f|--force)'; then
+# --force-with-lease is allowed: aborts safely if remote has unexpected changes.
+if echo "$command_str" | grep -qE 'git\s+push\s+.*(-f\b|--force($|[^-]))'; then
   echo "BLOCKED: force-push detected — this can destroy remote history."
   echo "Command: $command_str"
-  echo "Ask the user explicitly before running force-push."
+  echo "Use --force-with-lease for safe force pushes, or ask the user explicitly."
   exit 2
 fi
 
