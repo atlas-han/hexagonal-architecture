@@ -151,12 +151,52 @@ prompt: |
 
 review 파일 첫 줄을 Read:
 
-- **PASS** → 3.6 으로.
 - **FAIL** → 같은 sprint 의 Generator 구현(3.3)을 재호출. 단,
   프롬프트에 다음을 추가: "직전 review (sprint-NN-review.md) 의 Bugs found
   표를 1개씩 처리하세요. 새 handoff 는 각 FAIL 항목을 명시적으로 언급해야
   합니다." 그 뒤 다시 3.4. **최대 3 회 재시도.** 초과 시
   `needs input: sprint NN failing 3 retries — see reviews/sprint-NN-review.md`.
+
+- **PASS** → 아래 추가 검증 순서를 거친 뒤 3.6 으로.
+
+#### 3.5-G  gitleaks 재확인 (STATUS: PASS 일 때만)
+
+review 파일에서 `GITLEAKS_VIOLATIONS:` 마커를 Read 로 추출한다.
+
+- `GITLEAKS_VIOLATIONS: YES` → STATUS 가 PASS 여도 **강제 FAIL** 로 뒤집는다.
+  run-log.md 에 `SECURITY OVERRIDE — gitleaks violation demoted PASS to FAIL`
+  를 기록한 뒤 3.3(Generator 재구현) 으로 돌아간다.
+  Generator 프롬프트에 다음을 추가:
+  "sprint-NN-review.md 의 Security Scan 섹션에 보고된 gitleaks 위반을
+  즉시 제거하세요. 비밀키/토큰/패스워드를 환경변수 참조나 플레이스홀더로
+  대체하세요. 새 handoff 에 제거 방법을 명시하세요."
+- `GITLEAKS_VIOLATIONS: SKIPPED` → run-log.md 에 경고를 남기고 계속 진행.
+- `GITLEAKS_VIOLATIONS: NO` 또는 마커 없음 → 계속 진행.
+
+#### 3.5-S  SOLID 위반 사용자 확인 (STATUS: PASS + gitleaks 통과 일 때만)
+
+review 파일에서 `SOLID_VIOLATIONS:` 마커를 Read 로 추출한다.
+
+- `SOLID_VIOLATIONS: NO` 또는 마커 없음 → 3.6 으로.
+- `SOLID_VIOLATIONS: YES` →
+  1. run-log.md 에 `SOLID violations detected — awaiting user decision` 를 기록.
+  2. 다음으로 정지:
+     ```
+     needs input: sprint NN — SOLID principle violations found.
+     See ## SOLID Analysis in reviews/sprint-NN-review.md.
+     Reply 'fix' to have the Generator address them (re-runs §3.3),
+     or 'skip' to accept the sprint as-is and proceed to commit.
+     ```
+  3. 사용자 응답을 기다린다:
+     - `fix` (또는 fix 를 포함하는 문장) → Generator(3.3) 재호출.
+       프롬프트에 추가: "sprint-NN-review.md 의 ## SOLID Analysis 섹션에
+       나열된 SOLID 위반을 수정하세요. 새 handoff 에 각 항목을 명시적으로
+       언급하세요."  그 뒤 3.4 → 3.5 반복. **이 분기의 재시도는 별도로
+       최대 2 회.** 초과 시
+       `needs input: SOLID fix retries exhausted — sprint NN`.
+     - `skip` (또는 skip 을 포함하는 문장) → run-log.md 에
+       `SOLID violations accepted by user — proceeding to commit` 를 기록하고
+       3.6 으로.
 
 ### 3.6 Commit (오케스트레이터 수행)
 
