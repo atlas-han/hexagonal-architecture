@@ -83,6 +83,31 @@ git status                               # confirm only in-scope files changed
 ./gradlew check                          # picks up ArchUnit rules
 ```
 
+**Security scan (gitleaks) — run right after `git status`, before the build:**
+
+```bash
+# Install gitleaks if missing (macOS / Homebrew)
+if ! command -v gitleaks &>/dev/null; then
+  brew install gitleaks 2>&1 || echo "GITLEAKS_INSTALL_FAILED"
+fi
+
+if command -v gitleaks &>/dev/null; then
+  gitleaks detect --no-git --source . --exit-code 1 2>&1
+  GITLEAKS_EXIT=$?
+  echo "GITLEAKS_EXIT:${GITLEAKS_EXIT}"
+else
+  GITLEAKS_EXIT=99   # tool absent
+  echo "GITLEAKS_SCAN: SKIPPED (gitleaks unavailable after install attempt)"
+fi
+```
+
+- `GITLEAKS_EXIT=0` → `GITLEAKS_VIOLATIONS: NO`
+- `GITLEAKS_EXIT=1` → **automatic sprint FAIL**. Write `GITLEAKS_VIOLATIONS: YES`
+  in the review file. Do NOT score or proceed further. Generator must remove
+  all leaked secrets before re-submission.
+- `GITLEAKS_EXIT=99` (tool absent) → `GITLEAKS_VIOLATIONS: SKIPPED`. Log a warning
+  in the review; do NOT fail the sprint solely because the tool was unavailable.
+
 Plus the contract's "Acceptance checks" verbatim. Plus, sprint-dependent:
 
 - `grep -R "lombok" src/main/kotlin src/test/kotlin` → expect no hits once
@@ -104,6 +129,32 @@ For Idiomatic Kotlin, sample at least 3 converted files and look for:
 
 For Architectural Integrity, re-run ArchUnit and re-read the package tree
 under `src/main/kotlin`. Package names must match the original layout.
+
+**SOLID principles check — run after build succeeds:**
+
+Read every file changed in this sprint (`git diff --name-only HEAD~1`) and
+check each of the five principles against the *converted* Kotlin code:
+
+| Principle | What to look for in this codebase |
+|-----------|-----------------------------------|
+| **S** Single Responsibility | A class/object handling >1 concern (e.g., a use case interactor that also formats HTTP responses, or a domain entity that owns persistence logic). |
+| **O** Open/Closed | Switching on concrete types (`when (x) { is Foo -> … is Bar -> … }`) where the sealed hierarchy or an interface extension would allow extension without modification. |
+| **L** Liskov Substitution | A subclass/implementation that narrows a contract (throws where the parent doesn't, ignores a parameter, returns a stricter type incompatibly). |
+| **I** Interface Segregation | A port interface with methods that some adapters leave empty/throw `UnsupportedOperationException`; callers forced to depend on methods they don't use. |
+| **D** Dependency Inversion | High-level domain/use-case code that directly instantiates a low-level class (e.g., `val repo = JpaActivityRepository()`) or imports from an adapter package. |
+
+For each violation found, record: principle, file:line, one-sentence description,
+and a suggested fix sketch.
+
+Write the result to the `## SOLID Analysis` section of the review (see template
+below). Include the machine-parseable marker:
+
+- `SOLID_VIOLATIONS: YES` — one or more concrete violations were found.
+- `SOLID_VIOLATIONS: NO`  — no violations found.
+
+The orchestrator reads this marker to decide whether to ask the user for
+confirmation before continuing. Do NOT change the STATUS line based solely on
+SOLID findings — SOLID is advisory: the orchestrator decides how to handle it.
 
 ---
 
@@ -137,6 +188,31 @@ STATUS: PASS                  ← or STATUS: FAIL — pick exactly one
 # Sprint <N> Review
 
 WEIGHTED SCORE: <0–10>
+
+## Security Scan
+
+GITLEAKS_VIOLATIONS: NO|YES|SKIPPED
+
+<gitleaks output summary or "Clean" or "Tool unavailable — install gitleaks via brew">
+
+## SOLID Analysis
+
+SOLID_VIOLATIONS: NO|YES
+
+### S — Single Responsibility
+<findings with file:line, or "No violation">
+
+### O — Open/Closed
+<findings with file:line, or "No violation">
+
+### L — Liskov Substitution
+<findings with file:line, or "No violation">
+
+### I — Interface Segregation
+<findings with file:line, or "No violation">
+
+### D — Dependency Inversion
+<findings with file:line, or "No violation">
 
 ## Criteria
 
@@ -185,3 +261,4 @@ the Bugs found table in the next iteration of sprint <N>.">
 - If a converted file imports `lombok`, that is automatically a FAIL.
 - If a test was *modified* (not just moved/renamed) to make it pass, that is
   automatically a FAIL.
+- If gitleaks exits non-zero, that is automatically a FAIL — security trumps everything.
