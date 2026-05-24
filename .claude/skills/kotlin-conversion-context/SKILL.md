@@ -99,26 +99,19 @@ condition for the Evaluator.
 
 ## 5. Verification recipes
 
+Run `.claude/skills/kotlin-conversion-context/scripts/verify.sh` for a
+complete end-to-end check. Individual commands are also in that script for
+selective use.
+
+Key quick-checks (for inline use during review):
 ```
-# Build / test the converted code
-./gradlew compileKotlin compileTestKotlin
-./gradlew test
-./gradlew check                            # picks up ArchUnit
-
-# Confirm Lombok is gone within scope
-grep -R "import lombok"  src/main/kotlin src/test/kotlin   # expect empty
-grep -R "lombok"         src/main/kotlin src/test/kotlin   # double-check
-
-# Spot-check Kotlin idioms within converted files
-grep -Rn "lateinit var"    src/main/kotlin
-grep -Rn "@Autowired"      src/main/kotlin
-grep -Rn "Optional<"       src/main/kotlin
-grep -Rn "!!\b"            src/main/kotlin   # each must have a justifying comment
-
-# Package layout must match
-diff <(find src/main/java   -type d | sed 's|src/main/java/||'   | sort) \
-     <(find src/main/kotlin -type d | sed 's|src/main/kotlin/||' | sort)
+./gradlew compileKotlin compileTestKotlin && ./gradlew test
+grep -R "import lombok" src/main/kotlin src/test/kotlin   # expect empty
+grep -Rn "@Autowired"   src/main/kotlin                   # expect empty
 ```
+
+For conversion examples (Money, JPA entities, Spring services, command
+objects), see `.claude/skills/kotlin-conversion-context/EXAMPLES.md`.
 
 ## 6. When converting
 
