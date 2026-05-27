@@ -11,6 +11,12 @@ jacoco {
     toolVersion = "0.8.10"
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
 
 group = 'io.reflectoring.buckpal'
 version = '0.0.1-SNAPSHOT'
