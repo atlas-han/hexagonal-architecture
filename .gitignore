@@ -3,6 +3,10 @@ HELP.md
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
+# Environment-specific Gradle config (e.g. org.gradle.java.home).
+# CI injects its own value; local devs override per-machine.
+gradle.properties
+
 ### STS ###
 .apt_generated
 .classpath

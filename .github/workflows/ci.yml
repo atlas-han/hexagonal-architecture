@@ -15,6 +15,9 @@ jobs:
       with:
         java-version: 14
 
+    - name: "Inject Gradle java.home"
+      run: echo "org.gradle.java.home=${JAVA_HOME}" > gradle.properties
+
     - name: "Initialize Gradle dependencies cache"
       uses: actions/cache@v2
       with:
