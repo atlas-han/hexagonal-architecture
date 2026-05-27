@@ -1,7 +1,6 @@
 package buckpal
 
 import com.tngtech.archunit.core.importer.ClassFileImporter
-import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
 import io.kotest.core.spec.style.FunSpec
 import buckpal.archunit.HexagonalArchitecture
 
@@ -27,19 +26,6 @@ class DependencyRuleTests : FunSpec({
             .check(
                 ClassFileImporter()
                     .importPackages("buckpal.."),
-            )
-    }
-
-    test("testPackageDependencies") {
-        noClasses()
-            .that()
-            .resideInAPackage("io.reflectoring.reviewapp.domain..")
-            .should()
-            .dependOnClassesThat()
-            .resideInAnyPackage("io.reflectoring.reviewapp.application..")
-            .check(
-                ClassFileImporter()
-                    .importPackages("io.reflectoring.reviewapp.."),
             )
     }
 })

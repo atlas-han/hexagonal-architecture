@@ -32,21 +32,17 @@ internal abstract class ArchitectureElement(val basePackage: String) {
     companion object {
 
         @JvmStatic
-        @Suppress("UNUSED_PARAMETER")
         internal fun denyDependency(
             fromPackageName: String,
             toPackageName: String,
             classes: JavaClasses,
         ) {
-            // Parameter names retained verbatim from the Java book source for
-            // the placeholder check; the body uses the literal
-            // `io.reflectoring.reviewapp...` strings unchanged.
             noClasses()
                 .that()
-                .resideInAPackage("io.reflectoring.reviewapp.domain..")
+                .resideInAPackage(matchAllClassesInPackage(fromPackageName))
                 .should()
                 .dependOnClassesThat()
-                .resideInAnyPackage("io.reflectoring.reviewapp.application..")
+                .resideInAnyPackage(matchAllClassesInPackage(toPackageName))
                 .check(classes)
         }
 
