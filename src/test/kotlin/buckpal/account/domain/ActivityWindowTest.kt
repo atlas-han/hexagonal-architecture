@@ -1,9 +1,9 @@
-package io.reflectoring.buckpal.account.domain
+package buckpal.account.domain
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.common.ActivityTestData.defaultActivity
+import buckpal.account.domain.Account.AccountId
+import buckpal.common.ActivityTestData.defaultActivity
 import java.time.LocalDateTime
 
 class ActivityWindowTest : BehaviorSpec({

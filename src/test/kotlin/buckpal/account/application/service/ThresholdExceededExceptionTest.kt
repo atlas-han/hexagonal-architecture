@@ -1,10 +1,10 @@
-package io.reflectoring.buckpal.account.application.service
+package buckpal.account.application.service
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.domain.Money
 
 class ThresholdExceededExceptionTest : BehaviorSpec({
 

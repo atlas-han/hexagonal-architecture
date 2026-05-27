@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.account.domain
+package buckpal.account.domain
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.booleans.shouldBeFalse

@@ -1,10 +1,10 @@
-package io.reflectoring.buckpal.account.adapter.`in`.web
+package buckpal.account.adapter.`in`.web
 
-import io.reflectoring.buckpal.account.application.port.`in`.SendMoneyCommand
-import io.reflectoring.buckpal.account.application.port.`in`.SendMoneyUseCase
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.Money
-import io.reflectoring.buckpal.common.WebAdapter
+import buckpal.account.application.port.`in`.SendMoneyCommand
+import buckpal.account.application.port.`in`.SendMoneyUseCase
+import buckpal.account.domain.Account
+import buckpal.account.domain.Money
+import buckpal.common.WebAdapter
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RestController

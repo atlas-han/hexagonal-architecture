@@ -1,14 +1,14 @@
-package io.reflectoring.buckpal.account.adapter.`in`.web
+package buckpal.account.adapter.`in`.web
 
 import com.ninjasquad.springmockk.MockkBean
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.mockk.every
 import io.mockk.verify
-import io.reflectoring.buckpal.account.application.port.`in`.SendMoneyCommand
-import io.reflectoring.buckpal.account.application.port.`in`.SendMoneyUseCase
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.application.port.`in`.SendMoneyCommand
+import buckpal.account.application.port.`in`.SendMoneyUseCase
+import buckpal.account.domain.Account.AccountId
+import buckpal.account.domain.Money
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.test.web.servlet.MockMvc

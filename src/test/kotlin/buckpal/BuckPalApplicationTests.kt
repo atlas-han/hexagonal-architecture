@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal
+package buckpal
 
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension

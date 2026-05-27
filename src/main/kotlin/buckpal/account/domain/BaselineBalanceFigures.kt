@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.account.domain
+package buckpal.account.domain
 
 data class BaselineBalanceFigures(
     val deposit: Money,

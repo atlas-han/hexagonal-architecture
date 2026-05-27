@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.account.domain
+package buckpal.account.domain
 
 /**
  * An account that holds a certain amount of money. An [Account] object only

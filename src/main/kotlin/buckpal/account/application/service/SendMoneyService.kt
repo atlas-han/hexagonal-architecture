@@ -1,12 +1,12 @@
-package io.reflectoring.buckpal.account.application.service
+package buckpal.account.application.service
 
-import io.reflectoring.buckpal.account.application.port.`in`.SendMoneyCommand
-import io.reflectoring.buckpal.account.application.port.`in`.SendMoneyUseCase
-import io.reflectoring.buckpal.account.application.port.out.AccountLock
-import io.reflectoring.buckpal.account.application.port.out.LoadAccountPort
-import io.reflectoring.buckpal.account.application.port.out.UpdateAccountStatePort
-import io.reflectoring.buckpal.account.domain.BaselineDate
-import io.reflectoring.buckpal.common.UseCase
+import buckpal.account.application.port.`in`.SendMoneyCommand
+import buckpal.account.application.port.`in`.SendMoneyUseCase
+import buckpal.account.application.port.out.AccountLock
+import buckpal.account.application.port.out.LoadAccountPort
+import buckpal.account.application.port.out.UpdateAccountStatePort
+import buckpal.account.domain.BaselineDate
+import buckpal.common.UseCase
 import javax.transaction.Transactional
 
 @UseCase

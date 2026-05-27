@@ -1,13 +1,13 @@
-package io.reflectoring.buckpal.account.domain
+package buckpal.account.domain
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.common.AccountTestData.defaultAccount
-import io.reflectoring.buckpal.common.ActivityTestData.defaultActivity
+import buckpal.account.domain.Account.AccountId
+import buckpal.common.AccountTestData.defaultAccount
+import buckpal.common.ActivityTestData.defaultActivity
 
 class AccountTest : BehaviorSpec({
 

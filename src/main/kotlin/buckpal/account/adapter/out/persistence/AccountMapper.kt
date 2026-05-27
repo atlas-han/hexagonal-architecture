@@ -1,11 +1,11 @@
-package io.reflectoring.buckpal.account.adapter.out.persistence
+package buckpal.account.adapter.out.persistence
 
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.Activity
-import io.reflectoring.buckpal.account.domain.ActivityTimestamp
-import io.reflectoring.buckpal.account.domain.ActivityWindow
-import io.reflectoring.buckpal.account.domain.BaselineBalanceFigures
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.domain.Account
+import buckpal.account.domain.Activity
+import buckpal.account.domain.ActivityTimestamp
+import buckpal.account.domain.ActivityWindow
+import buckpal.account.domain.BaselineBalanceFigures
+import buckpal.account.domain.Money
 import org.springframework.stereotype.Component
 
 @Component

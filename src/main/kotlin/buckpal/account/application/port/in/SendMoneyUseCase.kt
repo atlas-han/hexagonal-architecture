@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.account.application.port.`in`
+package buckpal.account.application.port.`in`
 
 interface SendMoneyUseCase {
 

@@ -1,6 +1,6 @@
-package io.reflectoring.buckpal.account.application.service
+package buckpal.account.application.service
 
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.domain.Money
 
 /**
  * Configuration properties for money transfer use cases.

@@ -1,14 +1,14 @@
-package io.reflectoring.buckpal
+package buckpal
 
 import com.tngtech.archunit.core.importer.ClassFileImporter
 import com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses
 import io.kotest.core.spec.style.FunSpec
-import io.reflectoring.buckpal.archunit.HexagonalArchitecture
+import buckpal.archunit.HexagonalArchitecture
 
 class DependencyRuleTests : FunSpec({
 
     test("validateRegistrationContextArchitecture") {
-        HexagonalArchitecture.boundedContext("io.reflectoring.buckpal.account")
+        HexagonalArchitecture.boundedContext("buckpal.account")
 
             .withDomainLayer("domain")
 
@@ -26,7 +26,7 @@ class DependencyRuleTests : FunSpec({
             .withConfiguration("configuration")
             .check(
                 ClassFileImporter()
-                    .importPackages("io.reflectoring.buckpal.."),
+                    .importPackages("buckpal.."),
             )
     }
 

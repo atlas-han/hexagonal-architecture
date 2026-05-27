@@ -1,12 +1,12 @@
-package io.reflectoring.buckpal.account.adapter.out.persistence
+package buckpal.account.adapter.out.persistence
 
-import io.reflectoring.buckpal.account.application.port.out.LoadAccountPort
-import io.reflectoring.buckpal.account.application.port.out.UpdateAccountStatePort
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.BaselineBalanceFigures
-import io.reflectoring.buckpal.account.domain.BaselineDate
-import io.reflectoring.buckpal.account.domain.Money
-import io.reflectoring.buckpal.common.PersistenceAdapter
+import buckpal.account.application.port.out.LoadAccountPort
+import buckpal.account.application.port.out.UpdateAccountStatePort
+import buckpal.account.domain.Account
+import buckpal.account.domain.BaselineBalanceFigures
+import buckpal.account.domain.BaselineDate
+import buckpal.account.domain.Money
+import buckpal.common.PersistenceAdapter
 import javax.persistence.EntityNotFoundException
 
 @PersistenceAdapter

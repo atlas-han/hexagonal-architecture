@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.common
+package buckpal.common
 
 import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow

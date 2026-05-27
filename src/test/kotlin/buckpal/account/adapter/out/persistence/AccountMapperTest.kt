@@ -1,14 +1,14 @@
-package io.reflectoring.buckpal.account.adapter.out.persistence
+package buckpal.account.adapter.out.persistence
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.Activity
-import io.reflectoring.buckpal.account.domain.ActivityTimestamp
-import io.reflectoring.buckpal.account.domain.BaselineBalanceFigures
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.domain.Account
+import buckpal.account.domain.Activity
+import buckpal.account.domain.ActivityTimestamp
+import buckpal.account.domain.BaselineBalanceFigures
+import buckpal.account.domain.Money
 import java.time.LocalDateTime
 
 class AccountMapperTest : DescribeSpec({

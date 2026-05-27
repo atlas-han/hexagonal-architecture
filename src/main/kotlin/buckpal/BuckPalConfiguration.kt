@@ -1,7 +1,7 @@
-package io.reflectoring.buckpal
+package buckpal
 
-import io.reflectoring.buckpal.account.application.service.MoneyTransferProperties
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.application.service.MoneyTransferProperties
+import buckpal.account.domain.Money
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration

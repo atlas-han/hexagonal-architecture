@@ -1,13 +1,13 @@
-package io.reflectoring.buckpal
+package buckpal
 
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import io.reflectoring.buckpal.account.application.port.out.LoadAccountPort
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.account.domain.BaselineDate
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.application.port.out.LoadAccountPort
+import buckpal.account.domain.Account
+import buckpal.account.domain.Account.AccountId
+import buckpal.account.domain.BaselineDate
+import buckpal.account.domain.Money
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment
@@ -38,7 +38,7 @@ class SendMoneySystemTest : DescribeSpec() {
     private lateinit var dataSource: DataSource
 
     private fun loadSql(resource: String) {
-        val classpath = "io/reflectoring/buckpal/$resource"
+        val classpath = "buckpal/$resource"
         // Use DataSourceUtils so the script joins any active transaction,
         // matching Spring's annotation-driven SQL load semantics.
         // SpringBootTest does not auto-rollback, so inserts persist

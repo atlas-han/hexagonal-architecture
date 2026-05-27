@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.account.adapter.out.persistence
+package buckpal.account.adapter.out.persistence
 
 import javax.persistence.Entity
 import javax.persistence.GeneratedValue

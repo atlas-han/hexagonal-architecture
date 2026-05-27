@@ -1,10 +1,10 @@
-package io.reflectoring.buckpal.common
+package buckpal.common
 
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.account.domain.Activity
-import io.reflectoring.buckpal.account.domain.Activity.ActivityId
-import io.reflectoring.buckpal.account.domain.ActivityTimestamp
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.domain.Account.AccountId
+import buckpal.account.domain.Activity
+import buckpal.account.domain.Activity.ActivityId
+import buckpal.account.domain.ActivityTimestamp
+import buckpal.account.domain.Money
 import java.time.LocalDateTime
 
 object ActivityTestData {

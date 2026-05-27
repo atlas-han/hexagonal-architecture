@@ -1,15 +1,15 @@
-package io.reflectoring.buckpal.account.application.service
+package buckpal.account.application.service
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import io.reflectoring.buckpal.account.application.port.out.LoadAccountPort
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.account.domain.BaselineDate
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.application.port.out.LoadAccountPort
+import buckpal.account.domain.Account
+import buckpal.account.domain.Account.AccountId
+import buckpal.account.domain.BaselineDate
+import buckpal.account.domain.Money
 
 class GetAccountBalanceServiceTest : BehaviorSpec({
 

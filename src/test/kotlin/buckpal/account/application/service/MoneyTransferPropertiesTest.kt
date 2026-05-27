@@ -1,9 +1,9 @@
-package io.reflectoring.buckpal.account.application.service
+package buckpal.account.application.service
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.domain.Money
 
 class MoneyTransferPropertiesTest : BehaviorSpec({
 

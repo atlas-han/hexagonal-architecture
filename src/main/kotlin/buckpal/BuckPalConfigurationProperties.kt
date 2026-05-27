@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal
+package buckpal
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 

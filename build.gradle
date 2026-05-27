@@ -85,10 +85,10 @@ jacocoTestReport {
     afterEvaluate {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, exclude: [
-                'io/reflectoring/buckpal/BuckPalApplication*',
-                'io/reflectoring/buckpal/BuckPalConfiguration.class',
-                'io/reflectoring/buckpal/BuckPalConfiguration$*',
-                'io/reflectoring/buckpal/account/adapter/out/persistence/*JpaEntity*'
+                'buckpal/BuckPalApplication*',
+                'buckpal/BuckPalConfiguration.class',
+                'buckpal/BuckPalConfiguration$*',
+                'buckpal/account/adapter/out/persistence/*JpaEntity*'
             ])
         }))
     }
@@ -106,10 +106,10 @@ jacocoTestCoverageVerification {
     afterEvaluate {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, exclude: [
-                'io/reflectoring/buckpal/BuckPalApplication*',
-                'io/reflectoring/buckpal/BuckPalConfiguration.class',
-                'io/reflectoring/buckpal/BuckPalConfiguration$*',
-                'io/reflectoring/buckpal/account/adapter/out/persistence/*JpaEntity*'
+                'buckpal/BuckPalApplication*',
+                'buckpal/BuckPalConfiguration.class',
+                'buckpal/BuckPalConfiguration$*',
+                'buckpal/account/adapter/out/persistence/*JpaEntity*'
             ])
         }))
     }

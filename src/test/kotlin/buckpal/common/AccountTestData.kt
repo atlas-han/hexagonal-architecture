@@ -1,9 +1,9 @@
-package io.reflectoring.buckpal.common
+package buckpal.common
 
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.account.domain.ActivityWindow
-import io.reflectoring.buckpal.account.domain.Money
+import buckpal.account.domain.Account
+import buckpal.account.domain.Account.AccountId
+import buckpal.account.domain.ActivityWindow
+import buckpal.account.domain.Money
 
 object AccountTestData {
 

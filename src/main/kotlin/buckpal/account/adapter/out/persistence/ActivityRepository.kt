@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.account.adapter.out.persistence
+package buckpal.account.adapter.out.persistence
 
 import java.time.LocalDateTime
 import org.springframework.data.jpa.repository.JpaRepository

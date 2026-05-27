@@ -1,11 +1,11 @@
-package io.reflectoring.buckpal.account.domain
+package buckpal.account.domain
 
 import io.kotest.core.spec.style.BehaviorSpec
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.account.domain.Activity.ActivityId
+import buckpal.account.domain.Account.AccountId
+import buckpal.account.domain.Activity.ActivityId
 import java.time.LocalDateTime
 
 class ActivityTest : BehaviorSpec({

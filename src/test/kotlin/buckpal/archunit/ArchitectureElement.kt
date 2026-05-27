@@ -1,4 +1,4 @@
-package io.reflectoring.buckpal.archunit
+package buckpal.archunit
 
 import com.tngtech.archunit.base.DescribedPredicate.greaterThanOrEqualTo
 import com.tngtech.archunit.core.domain.JavaClasses

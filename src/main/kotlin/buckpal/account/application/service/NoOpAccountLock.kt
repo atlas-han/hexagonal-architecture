@@ -1,7 +1,7 @@
-package io.reflectoring.buckpal.account.application.service
+package buckpal.account.application.service
 
-import io.reflectoring.buckpal.account.application.port.out.AccountLock
-import io.reflectoring.buckpal.account.domain.Account
+import buckpal.account.application.port.out.AccountLock
+import buckpal.account.domain.Account
 import org.springframework.stereotype.Component
 
 @Component

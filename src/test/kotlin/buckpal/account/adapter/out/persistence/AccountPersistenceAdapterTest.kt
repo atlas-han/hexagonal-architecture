@@ -1,15 +1,15 @@
-package io.reflectoring.buckpal.account.adapter.out.persistence
+package buckpal.account.adapter.out.persistence
 
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.reflectoring.buckpal.account.domain.Account.AccountId
-import io.reflectoring.buckpal.account.domain.ActivityWindow
-import io.reflectoring.buckpal.account.domain.BaselineDate
-import io.reflectoring.buckpal.account.domain.Money
-import io.reflectoring.buckpal.common.AccountTestData.defaultAccount
-import io.reflectoring.buckpal.common.ActivityTestData.defaultActivity
+import buckpal.account.domain.Account.AccountId
+import buckpal.account.domain.ActivityWindow
+import buckpal.account.domain.BaselineDate
+import buckpal.account.domain.Money
+import buckpal.common.AccountTestData.defaultAccount
+import buckpal.common.ActivityTestData.defaultActivity
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest
 import org.springframework.context.annotation.Import
@@ -35,7 +35,7 @@ class AccountPersistenceAdapterTest : DescribeSpec() {
     private lateinit var dataSource: DataSource
 
     private fun loadSql(resource: String) {
-        val classpath = "io/reflectoring/buckpal/account/adapter/out/persistence/$resource"
+        val classpath = "buckpal/account/adapter/out/persistence/$resource"
         // Use DataSourceUtils so the script joins the test's active transaction,
         // matching Spring's @Sql semantics (rolled back at leaf end by @DataJpaTest).
         val connection = DataSourceUtils.getConnection(dataSource)

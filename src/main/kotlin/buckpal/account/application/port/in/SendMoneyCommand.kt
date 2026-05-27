@@ -1,8 +1,8 @@
-package io.reflectoring.buckpal.account.application.port.`in`
+package buckpal.account.application.port.`in`
 
-import io.reflectoring.buckpal.account.domain.Account
-import io.reflectoring.buckpal.account.domain.Money
-import io.reflectoring.buckpal.common.SelfValidating
+import buckpal.account.domain.Account
+import buckpal.account.domain.Money
+import buckpal.common.SelfValidating
 import javax.validation.constraints.NotNull
 
 data class SendMoneyCommand(
