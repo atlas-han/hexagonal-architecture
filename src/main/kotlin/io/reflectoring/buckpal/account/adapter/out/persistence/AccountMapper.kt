@@ -4,6 +4,7 @@ import io.reflectoring.buckpal.account.domain.Account
 import io.reflectoring.buckpal.account.domain.Activity
 import io.reflectoring.buckpal.account.domain.ActivityTimestamp
 import io.reflectoring.buckpal.account.domain.ActivityWindow
+import io.reflectoring.buckpal.account.domain.BaselineBalanceFigures
 import io.reflectoring.buckpal.account.domain.Money
 import org.springframework.stereotype.Component
 
@@ -13,13 +14,9 @@ internal class AccountMapper {
     fun mapToDomainEntity(
         account: AccountJpaEntity,
         activities: List<ActivityJpaEntity>,
-        withdrawalBalance: Long,
-        depositBalance: Long,
+        figures: BaselineBalanceFigures,
     ): Account {
-        val baselineBalance = Money.subtract(
-            Money.of(depositBalance),
-            Money.of(withdrawalBalance),
-        )
+        val baselineBalance = figures.toBaselineBalance()
 
         val accountId = requireNotNull(account.id) {
             "AccountJpaEntity loaded without id"

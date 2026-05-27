@@ -3,7 +3,9 @@ package io.reflectoring.buckpal.account.adapter.out.persistence
 import io.reflectoring.buckpal.account.application.port.out.LoadAccountPort
 import io.reflectoring.buckpal.account.application.port.out.UpdateAccountStatePort
 import io.reflectoring.buckpal.account.domain.Account
+import io.reflectoring.buckpal.account.domain.BaselineBalanceFigures
 import io.reflectoring.buckpal.account.domain.BaselineDate
+import io.reflectoring.buckpal.account.domain.Money
 import io.reflectoring.buckpal.common.PersistenceAdapter
 import javax.persistence.EntityNotFoundException
 
@@ -36,11 +38,15 @@ internal class AccountPersistenceAdapter(
             baselineDate.value,
         ) ?: 0L
 
+        val figures = BaselineBalanceFigures(
+            deposit = Money.of(depositBalance),
+            withdrawal = Money.of(withdrawalBalance),
+        )
+
         return accountMapper.mapToDomainEntity(
             account,
             activities,
-            withdrawalBalance,
-            depositBalance,
+            figures,
         )
     }
 

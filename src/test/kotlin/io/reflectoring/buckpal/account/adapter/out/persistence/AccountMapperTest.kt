@@ -7,6 +7,7 @@ import io.kotest.matchers.shouldBe
 import io.reflectoring.buckpal.account.domain.Account
 import io.reflectoring.buckpal.account.domain.Activity
 import io.reflectoring.buckpal.account.domain.ActivityTimestamp
+import io.reflectoring.buckpal.account.domain.BaselineBalanceFigures
 import io.reflectoring.buckpal.account.domain.Money
 import java.time.LocalDateTime
 
@@ -39,8 +40,10 @@ class AccountMapperTest : DescribeSpec({
             val result = mapper.mapToDomainEntity(
                 account = account,
                 activities = activities,
-                withdrawalBalance = 200L,
-                depositBalance = 700L,
+                figures = BaselineBalanceFigures(
+                    deposit = Money.of(700L),
+                    withdrawal = Money.of(200L),
+                ),
             )
 
             result.id shouldBe Account.AccountId(1L)
@@ -54,8 +57,10 @@ class AccountMapperTest : DescribeSpec({
             val result = mapper.mapToDomainEntity(
                 account = account,
                 activities = emptyList(),
-                withdrawalBalance = 0L,
-                depositBalance = 0L,
+                figures = BaselineBalanceFigures(
+                    deposit = Money.of(0L),
+                    withdrawal = Money.of(0L),
+                ),
             )
 
             result.id shouldBe Account.AccountId(7L)
@@ -70,8 +75,10 @@ class AccountMapperTest : DescribeSpec({
                 mapper.mapToDomainEntity(
                     account = account,
                     activities = emptyList(),
-                    withdrawalBalance = 0L,
-                    depositBalance = 0L,
+                    figures = BaselineBalanceFigures(
+                        deposit = Money.of(0L),
+                        withdrawal = Money.of(0L),
+                    ),
                 )
             }
         }
