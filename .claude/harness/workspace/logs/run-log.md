@@ -27,3 +27,8 @@
 - 2026-05-27T13:39:51Z | contract | sprint-03-contract.md | STATUS=AGREED
 - 2026-05-27T13:46:40Z | handoff | sprint-03-handoff.md
 - 2026-05-27T13:56:21Z | review | sprint-03-review.md | STATUS=PASS
+- 2026-05-27T13:57:36Z | contract | sprint-04-contract.md
+- 2026-05-27T13:58:57Z | contract | sprint-04-contract.md | STATUS=AGREED
+- 2026-05-27T14:01:21Z | handoff | sprint-04-vo-convention.md
+- 2026-05-27T14:06:39Z | handoff | sprint-04-handoff.md
+- 2026-05-27T14:15:46Z | review | sprint-04-review.md | STATUS=PASS
