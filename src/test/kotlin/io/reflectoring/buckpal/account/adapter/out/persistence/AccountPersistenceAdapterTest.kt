@@ -6,6 +6,7 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.reflectoring.buckpal.account.domain.Account.AccountId
 import io.reflectoring.buckpal.account.domain.ActivityWindow
+import io.reflectoring.buckpal.account.domain.BaselineDate
 import io.reflectoring.buckpal.account.domain.Money
 import io.reflectoring.buckpal.common.AccountTestData.defaultAccount
 import io.reflectoring.buckpal.common.ActivityTestData.defaultActivity
@@ -50,7 +51,7 @@ class AccountPersistenceAdapterTest : DescribeSpec() {
             it("loads account") {
                 loadSql("AccountPersistenceAdapterTest.sql")
 
-                val account = adapterUnderTest.loadAccount(AccountId(1L), LocalDateTime.of(2018, 8, 10, 0, 0))
+                val account = adapterUnderTest.loadAccount(AccountId(1L), BaselineDate(LocalDateTime.of(2018, 8, 10, 0, 0)))
 
                 account.activityWindow.getActivities() shouldHaveSize 2
                 account.calculateBalance() shouldBe Money.of(500L)

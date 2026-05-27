@@ -8,3 +8,13 @@
 2026-05-27T02:36:30Z | hot-fix | orchestrator | env: JDK 21 in container vs Gradle 7.6.4 launcher (max JDK 19). Resolution: apt install openjdk-17-jdk-headless; add gradle.properties (org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64) and java.toolchain { 17 } in build.gradle. ./gradlew test now BUILD SUCCESSFUL in 1m 33s.
 - 2026-05-27T02:52:47Z | handoff | sprint-00-handoff.md
 2026-05-27T03:05:00Z | sprint-00 | review | STATUS=PASS; GITLEAKS=SKIPPED (warning: no gitleaks binary present); SOLID=NO
+- 2026-05-27T03:42:20Z | contract | sprint-01-contract.md
+- 2026-05-27T03:43:20Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:43:23Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:43:26Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:43:41Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:51:54Z | contract | sprint-01-contract.md
+- 2026-05-27T05:42:03Z | contract | sprint-01-contract.md | STATUS=AGREED
+- 2026-05-27T08:28:25Z | handoff | sprint-01-handoff.md
+- 2026-05-27T08:38:15Z | review | sprint-01-review.md | STATUS=PASS
+2026-05-27T08:45:00Z | sprint-01 | review | STATUS=PASS; GITLEAKS=SKIPPED; SOLID=NO; ArchUnit 2/2 green; clean build+check BUILD SUCCESSFUL in 28s

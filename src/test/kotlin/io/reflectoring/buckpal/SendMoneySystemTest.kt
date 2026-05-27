@@ -6,6 +6,7 @@ import io.kotest.matchers.shouldBe
 import io.reflectoring.buckpal.account.application.port.out.LoadAccountPort
 import io.reflectoring.buckpal.account.domain.Account
 import io.reflectoring.buckpal.account.domain.Account.AccountId
+import io.reflectoring.buckpal.account.domain.BaselineDate
 import io.reflectoring.buckpal.account.domain.Money
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -79,7 +80,7 @@ class SendMoneySystemTest : DescribeSpec() {
     private fun targetAccount(): Account = loadAccount(targetAccountId())
 
     private fun loadAccount(accountId: AccountId): Account =
-        loadAccountPort.loadAccount(accountId, LocalDateTime.now())
+        loadAccountPort.loadAccount(accountId, BaselineDate(LocalDateTime.now()))
 
     private fun whenSendMoney(
         sourceAccountId: AccountId,
