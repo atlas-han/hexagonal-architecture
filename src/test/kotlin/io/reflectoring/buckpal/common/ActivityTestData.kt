@@ -3,6 +3,7 @@ package io.reflectoring.buckpal.common
 import io.reflectoring.buckpal.account.domain.Account.AccountId
 import io.reflectoring.buckpal.account.domain.Activity
 import io.reflectoring.buckpal.account.domain.Activity.ActivityId
+import io.reflectoring.buckpal.account.domain.ActivityTimestamp
 import io.reflectoring.buckpal.account.domain.Money
 import java.time.LocalDateTime
 
@@ -14,7 +15,7 @@ object ActivityTestData {
         ownerAccountId = AccountId(42L),
         sourceAccountId = AccountId(42L),
         targetAccountId = AccountId(41L),
-        timestamp = LocalDateTime.now(),
+        timestamp = ActivityTimestamp.now(),
         money = Money.of(999L),
     )
 
@@ -23,7 +24,7 @@ object ActivityTestData {
         private var ownerAccountId: AccountId,
         private var sourceAccountId: AccountId,
         private var targetAccountId: AccountId,
-        private var timestamp: LocalDateTime,
+        private var timestamp: ActivityTimestamp,
         private var money: Money,
     ) {
 
@@ -35,7 +36,9 @@ object ActivityTestData {
 
         fun withTargetAccount(accountId: AccountId): ActivityBuilder = apply { this.targetAccountId = accountId }
 
-        fun withTimestamp(timestamp: LocalDateTime): ActivityBuilder = apply { this.timestamp = timestamp }
+        fun withTimestamp(timestamp: ActivityTimestamp): ActivityBuilder = apply { this.timestamp = timestamp }
+
+        fun withTimestamp(timestamp: LocalDateTime): ActivityBuilder = apply { this.timestamp = ActivityTimestamp(timestamp) }
 
         fun withMoney(money: Money): ActivityBuilder = apply { this.money = money }
 

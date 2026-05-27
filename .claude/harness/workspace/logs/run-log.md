@@ -18,3 +18,8 @@
 - 2026-05-27T08:28:25Z | handoff | sprint-01-handoff.md
 - 2026-05-27T08:38:15Z | review | sprint-01-review.md | STATUS=PASS
 2026-05-27T08:45:00Z | sprint-01 | review | STATUS=PASS; GITLEAKS=SKIPPED; SOLID=NO; ArchUnit 2/2 green; clean build+check BUILD SUCCESSFUL in 28s
+- 2026-05-27T12:38:50Z | contract | sprint-02-contract.md | STATUS=AGREED
+- 2026-05-27T12:39:08Z | contract | sprint-02-contract.md
+- 2026-05-27T12:39:52Z | contract | sprint-02-contract.md | STATUS=AGREED
+- 2026-05-27T12:49:39Z | handoff | sprint-02-handoff.md
+- 2026-05-27T13:37:38Z | review | sprint-02-review.md | STATUS=PASS

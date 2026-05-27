@@ -2,6 +2,7 @@ package io.reflectoring.buckpal.account.adapter.out.persistence
 
 import io.reflectoring.buckpal.account.domain.Account
 import io.reflectoring.buckpal.account.domain.Activity
+import io.reflectoring.buckpal.account.domain.ActivityTimestamp
 import io.reflectoring.buckpal.account.domain.ActivityWindow
 import io.reflectoring.buckpal.account.domain.Money
 import org.springframework.stereotype.Component
@@ -55,7 +56,7 @@ internal class AccountMapper {
                 Account.AccountId(ownerAccountId),
                 Account.AccountId(sourceAccountId),
                 Account.AccountId(targetAccountId),
-                timestamp,
+                ActivityTimestamp(timestamp),
                 Money.of(amount),
             )
         }
@@ -65,7 +66,7 @@ internal class AccountMapper {
     fun mapToJpaEntity(activity: Activity): ActivityJpaEntity =
         ActivityJpaEntity(
             id = activity.id?.value,
-            timestamp = activity.timestamp,
+            timestamp = activity.timestamp.value,
             ownerAccountId = activity.ownerAccountId.value,
             sourceAccountId = activity.sourceAccountId.value,
             targetAccountId = activity.targetAccountId.value,
