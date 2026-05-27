@@ -1,7 +1,5 @@
 package io.reflectoring.buckpal.account.domain
 
-import java.time.LocalDateTime
-
 /**
  * An account that holds a certain amount of money. An [Account] object only
  * contains a window of the latest account activities. The total balance of the
@@ -39,7 +37,7 @@ open class Account private constructor(
             ownerId,
             ownerId,
             targetAccountId,
-            LocalDateTime.now(),
+            ActivityTimestamp.now(),
             money,
         )
         activityWindow.addActivity(withdrawal)
@@ -60,7 +58,7 @@ open class Account private constructor(
             ownerId,
             sourceAccountId,
             ownerId,
-            LocalDateTime.now(),
+            ActivityTimestamp.now(),
             money,
         )
         activityWindow.addActivity(deposit)

@@ -1,6 +1,5 @@
 package io.reflectoring.buckpal.account.domain
 
-import java.time.LocalDateTime
 import java.util.Collections
 
 /**
@@ -21,15 +20,15 @@ class ActivityWindow {
     /**
      * The timestamp of the first activity within this window.
      */
-    fun getStartTimestamp(): LocalDateTime =
-        activities.minByOrNull(Activity::timestamp)?.timestamp
+    fun getStartTimestamp(): ActivityTimestamp =
+        activities.minByOrNull { it.timestamp.value }?.timestamp
             ?: throw IllegalStateException()
 
     /**
      * The timestamp of the last activity within this window.
      */
-    fun getEndTimestamp(): LocalDateTime =
-        activities.maxByOrNull(Activity::timestamp)?.timestamp
+    fun getEndTimestamp(): ActivityTimestamp =
+        activities.maxByOrNull { it.timestamp.value }?.timestamp
             ?: throw IllegalStateException()
 
     /**

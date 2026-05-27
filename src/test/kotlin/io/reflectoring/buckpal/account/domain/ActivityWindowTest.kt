@@ -8,9 +8,9 @@ import java.time.LocalDateTime
 
 class ActivityWindowTest : BehaviorSpec({
 
-    val startDate: () -> LocalDateTime = { LocalDateTime.of(2019, 8, 3, 0, 0) }
-    val inBetweenDate: () -> LocalDateTime = { LocalDateTime.of(2019, 8, 4, 0, 0) }
-    val endDate: () -> LocalDateTime = { LocalDateTime.of(2019, 8, 5, 0, 0) }
+    val startDate: () -> ActivityTimestamp = { ActivityTimestamp(LocalDateTime.of(2019, 8, 3, 0, 0)) }
+    val inBetweenDate: () -> ActivityTimestamp = { ActivityTimestamp(LocalDateTime.of(2019, 8, 4, 0, 0)) }
+    val endDate: () -> ActivityTimestamp = { ActivityTimestamp(LocalDateTime.of(2019, 8, 5, 0, 0)) }
 
     given("an ActivityWindow with three activities") {
         `when`("calculating the start timestamp") {

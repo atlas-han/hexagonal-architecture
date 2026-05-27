@@ -1,321 +1,339 @@
 STATUS: PASS
+GITLEAKS_VIOLATIONS: SKIPPED
+SOLID_VIOLATIONS: NO
 
-# Sprint 04 Review — `AccountPersistenceAdapterTest` Kotest migration
+# Sprint 04 Review — Final verification + VO convention
 
-WEIGHTED SCORE: 9.4
-
-Sprint goal: convert the `@DataJpaTest` slice test to a Kotest `DescribeSpec`
-that registers the Spring extension, drops AssertJ/JUnit, and loads the SQL
-fixture inside the `loads account` leaf so the `@Sql` annotation's
-container-scoping work is preserved.
-
-Outcome: PASSES on every mechanically-verifiable acceptance check. The
-Generator deviated from the contract's literal `dataSource.connection.use {…}`
-snippet, swapping in `DataSourceUtils.getConnection / releaseConnection`.
-That deviation is **load-bearing for correctness** and **does not break any
-contract grep gate**; details below in "Notes on the DataSourceUtils
-deviation".
+This is the final sprint of the VO-extraction stream. No production code was
+modified in this sprint — only one workspace artifact
+(`sprint-04-vo-convention.md`) was added. The review re-runs every mandatory
+command directly (Generator self-check is not trusted), audits file scope,
+verifies the ADR table was copied verbatim, and performs a SOLID pass over
+the cumulative branch delta against the pre-sprint-00 baseline (`5948495`).
 
 ## Mandatory commands
 
-| # | Command | Exit | Evidence |
-|---|---------|------|----------|
-| 1 | `git status` | 0 | Only `src/test/kotlin/.../AccountPersistenceAdapterTest.kt` (modified) + harness workspace files (untracked) — clean scope. |
-| 2 | `./gradlew clean` | 0 | `BUILD SUCCESSFUL in 325ms`. |
-| 3 | `./gradlew compileKotlin compileTestKotlin` | 0 | `BUILD SUCCESSFUL in 1s`, no warnings on the converted file. |
-| 4 | `./gradlew test` | 0 | `BUILD SUCCESSFUL in 7s` first pass; re-run with `--rerun-tasks` also green. |
-| 5 | `./gradlew check` | 0 | `BUILD SUCCESSFUL`; ArchUnit `DependencyRuleTests` green. |
-| 6 | `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest"` | 0 | `BUILD SUCCESSFUL in 4s`. Both `loads account` and `updates activities` leaves green. |
+### Check 1 — `./gradlew clean build check`
 
-Aggregate leaf-test counts from `build/test-results/test/TEST-*.xml`:
+```
+> Task :compileKotlin
+> Task :compileJava NO-SOURCE
+> Task :classes
+> Task :bootJarMainClassName
+> Task :bootJar
+> Task :inspectClassesForKotlinIC
+> Task :jar SKIPPED
+> Task :assemble
+> Task :compileTestKotlin
+> Task :compileTestJava NO-SOURCE
+> Task :testClasses
+> Task :test
+> Task :jacocoTestReport
+> Task :check
+> Task :build
 
-| Suite | tests | failures | errors | skipped |
-|-------|-------|----------|--------|---------|
-| `account.adapter.in.web.SendMoneyControllerTest` | 1 | 0 | 0 | 0 |
-| `account.adapter.out.persistence.AccountPersistenceAdapterTest` | **2** | 0 | 0 | 0 |
-| `account.application.service.SendMoneyServiceTest` | 2 | 0 | 0 | 0 |
-| `account.domain.AccountTest` | 4 | 0 | 0 | 0 |
-| `account.domain.ActivityWindowTest` | 3 | 0 | 0 | 0 |
-| `BuckPalApplicationTests` | 1 | 0 | 0 | 0 |
-| `DependencyRuleTests` | **2** | 0 | 0 | 0 |
-| `SendMoneySystemTest` | 1 | 0 | 0 | 0 |
-| **Total** | **16** | **0** | **0** | **0** |
+BUILD SUCCESSFUL in 26s
+10 actionable tasks: 10 executed
+```
+exit 0 → **PASS**. Full clean build + check (ArchUnit `DependencyRuleTests`
+runs inside `:test`). One Gradle 8 deprecation warning surfaced —
+pre-existing, not introduced by this sprint.
 
-Total 16 matches the Sprint 03 baseline. `AccountPersistenceAdapterTest`
-contributes exactly **2** leaves. `DependencyRuleTests` reports
-`tests="2" failures="0"` — ArchUnit stays green; the XML artefact is the
-concrete evidence the contract demands.
+### Check 2 — `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"`
 
-## Criteria
+```
+> Task :test
+> Task :jacocoTestReport
 
-### Behavioral Correctness — 10/10 [threshold 9]
+BUILD SUCCESSFUL in 10s
+6 actionable tasks: 2 executed, 4 up-to-date
+```
+exit 0 → **PASS**. ArchUnit hexagonal layering still enforced; no new
+`domain → application/adapter` dependency was introduced by the three VOs.
 
-- `./gradlew test` and `./gradlew test --rerun-tasks` both exit 0; full
-  16-leaf suite green.
-- Per-suite XML at
-  `build/test-results/test/TEST-io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest.xml`
-  → `tests="2" failures="0" errors="0" skipped="0"`.
-- `loads account` leaf reads 2 activities and balance `Money.of(500L)`
-  (proves the SQL preload landed and was visible inside the slice
-  transaction — see DataSourceUtils note below).
-- `updates activities` leaf observes `activityRepository.count() == 1L`
-  (proves no cross-leaf SQL bleed: `@DataJpaTest`'s transactional rollback
-  remained intact, and the SQL load from the previous leaf was rolled
-  back, not committed).
-- ArchUnit `DependencyRuleTests` XML reports `tests="2" failures="0"`.
-- `./gradlew check` exit 0.
+### Check 3 — `./gradlew test --tests "io.reflectoring.buckpal.BuckPalApplicationTests"`
 
-No regressions; no test was modified to mask a bug.
+```
+BUILD SUCCESSFUL in 13s
+6 actionable tasks: 2 executed, 4 up-to-date
+```
+exit 0 → **PASS**. Spring context still boots; `@ConfigurationProperties`
+binding for `transferThreshold: Long` works (one of the INTENTIONAL
+primitive leaks).
 
-### Idiomatic Kotlin — 9/10 [threshold 7]
+### Check 4 — `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"`
 
-Sampled the entire file (80 lines) plus the diff against `HEAD`:
+```
+BUILD SUCCESSFUL in 14s
+6 actionable tasks: 2 executed, 4 up-to-date
+```
+exit 0 → **PASS**. End-to-end `POST /accounts/send/{Long}/{Long}/{Long}`
+round-trip works byte-for-byte against the pre-sprint-00 baseline.
 
-Strong points:
-- `class AccountPersistenceAdapterTest : DescribeSpec()` with `init { describe { … } }` — class-body form, correctly chosen because `@Autowired lateinit var` properties cannot live inside the constructor-arg lambda form.
-- `override fun extensions() = listOf(SpringExtension)` (line 25) — expression body, no redundant return type.
-- Infix `shouldBe` and `shouldHaveSize` everywhere; zero `.shouldBe(` or `.shouldHaveSize(` method-call form.
-- Zero `!!` operators.
-- All three `lateinit var` declarations are `@Autowired` (lines 27→28, 30→31, 33→34); count is exactly 3 as the contract requires. Each `lateinit var` is documented by Spring's TestContextManager pattern.
-- `loadSql(resource: String)` is a private member function — appropriate scoping; no global state.
-- Kotlin string template `"io/reflectoring/buckpal/account/adapter/out/persistence/$resource"` instead of `String.format`.
-- `try { … } finally { DataSourceUtils.releaseConnection(…) }` is the idiomatic Spring-style pattern for `DataSourceUtils`; the connection cannot use Kotlin's `.use { … }` extension because `releaseConnection` is the API contract, not `close()` (see deviation note).
+### Check 5 — VO construction containment
 
-Minor nits (deducting 1 point but not failing):
-- Line 53: `LocalDateTime.of(2018, 8, 10, 0, 0)` — magic numbers retained verbatim from the original test. Acceptable since the contract scope is mechanical conversion; flagging for the next iteration only if the team wants a named constant.
-- Line 75: `activityRepository.findAll().get(0)` is Java-style; Kotlin convention prefers `findAll().first()` or `findAll()[0]`. The contract did not require this and behavior is identical, but a Kotlin reviewer would call it out.
-
-### Architectural Integrity — 10/10 [threshold 9]
-
-- ArchUnit `DependencyRuleTests` XML reports `tests="2" failures="0"`. The
-  hexagonal layout under `src/main/kotlin/io/reflectoring/buckpal/**` is
-  untouched (no `src/main/` files changed).
-- `git diff --name-only HEAD -- src/main/` → empty.
-- `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/` → empty (fixtures untouched).
-- `git diff --name-only HEAD -- src/test/resources/` → empty (SQL files untouched, spec out-of-scope item respected).
-- `git diff --name-only HEAD -- build.gradle` → empty.
-- `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/domain/` → empty.
-- `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/application/service/` → empty.
-- `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/adapter/in/web/` → empty.
-- `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/archunit/` → empty.
-- `find src/main/java src/test/java -name '*.java'` → no such directories (post-Sprint-9 state preserved).
-- `grep -R "import lombok" src/main/kotlin src/test/kotlin` → no hits.
-- Package path of the test file unchanged: `io.reflectoring.buckpal.account.adapter.out.persistence`.
-
-Only one source file changed, exactly the one declared in the contract:
-`src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapterTest.kt`.
-
-### Code Quality — 8/10 [threshold 7]
-
-Negative grep gates (all exit 1 — no matches, as required):
-
-| Gate | Result |
-|------|--------|
-| `^import org\.assertj\.core` | no hits |
-| `assertThat(` | no hits |
-| `^import org\.junit\.jupiter` | no hits |
-| `@Test\b` | no hits |
-| `!!` | no hits |
-| `\.shouldBe\(` | no hits |
-| `\.shouldHaveSize\(` | no hits |
-
-Positive grep gates:
-
-| Gate | Required | Actual |
-|------|----------|--------|
-| `^class AccountPersistenceAdapterTest\s*:\s*DescribeSpec` | ≥ 1 | 1 (line 23) |
-| `^import io\.kotest\.core\.spec\.style\.DescribeSpec` | ≥ 1 | 1 (line 3) |
-| `^import io\.kotest\.extensions\.spring\.SpringExtension` | ≥ 1 | 1 (line 4) |
-| `override fun extensions\(\)` | ≥ 1 | 1 (line 25) |
-| `@DataJpaTest` | ≥ 1 | 2 (line 21 class-level + line 39 comment) |
-| `@Import\(AccountPersistenceAdapter::class,\s*AccountMapper::class\)` | ≥ 1 | 1 (line 22) |
-| `AccountPersistenceAdapterTest\.sql` | ≥ 1 | 1 (line 51) |
-| `ScriptUtils` | ≥ 1 | 2 (import line 17 + call line 42) |
-| `shouldHaveSize` count | exactly 2 | 2 (import line 5 + line 55) |
-| `\bshouldBe\b` count | exactly 4 | 4 (import line 6 + lines 56, 73, 76) |
-| `lateinit var` count | exactly 3 | 3 (lines 28, 31, 34) |
-
-All exact-count gates match exactly. No deviation in counts.
-
-Minor observations:
-- The literal `@DataJpaTest` appears a second time inside the comment on
-  line 39, which is fine (grep gate is "≥ 1"); the comment is informative
-  rather than load-bearing.
-- The string literal `"io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapterTest.sql"` is split into a base path constant + interpolated resource name in `loadSql`. The literal `AccountPersistenceAdapterTest.sql` is preserved on line 51 (positive gate satisfied).
-- Helper function `loadSql` is private; could in principle become a top-level helper or a Kotest extension, but the current scoping is the simplest and the contract explicitly wrote it this way.
-
-## Notes on the DataSourceUtils deviation (handoff-flagged)
-
-**What the contract said:**
-
-```kotlin
-private fun loadSql(resource: String) {
-    val classpath = "io/reflectoring/buckpal/account/adapter/out/persistence/$resource"
-    dataSource.connection.use { connection ->
-        ScriptUtils.executeSqlScript(connection, ClassPathResource(classpath))
-    }
-}
+```
+$ grep -rEn 'BaselineDate\(|ActivityTimestamp\(|BaselineBalanceFigures\(' src/main/kotlin
+src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt:56:                ActivityTimestamp(timestamp),
+src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt:41:        val figures = BaselineBalanceFigures(
+src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineBalanceFigures.kt:3:data class BaselineBalanceFigures(
+src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt:6:value class BaselineDate(val value: LocalDateTime) {
+src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt:8:    fun minusDays(days: Long): BaselineDate = BaselineDate(value.minusDays(days))
+src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt:11:        fun now(): BaselineDate = BaselineDate(LocalDateTime.now())
+src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt:13:value class ActivityTimestamp(val value: LocalDateTime) {
+src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt:16:        fun now(): ActivityTimestamp = ActivityTimestamp(LocalDateTime.now())
 ```
 
-**What the Generator wrote:**
+8 hits across 5 distinct files. Per-line audit:
 
-```kotlin
-private fun loadSql(resource: String) {
-    val classpath = "io/reflectoring/buckpal/account/adapter/out/persistence/$resource"
-    val connection = DataSourceUtils.getConnection(dataSource)
-    try {
-        ScriptUtils.executeSqlScript(connection, ClassPathResource(classpath))
-    } finally {
-        DataSourceUtils.releaseConnection(connection, dataSource)
-    }
-}
+| File | Layer | OK? |
+|------|-------|-----|
+| `account/adapter/out/persistence/AccountMapper.kt:56` | adapter | OK (boundary unwrap → wrap) |
+| `account/adapter/out/persistence/AccountPersistenceAdapter.kt:41` | adapter | OK (Long aggregates → Money pair) |
+| `account/domain/BaselineBalanceFigures.kt:3` | domain | OK (declaration) |
+| `account/domain/BaselineDate.kt:6,8,11` | domain | OK (declaration + factory chain) |
+| `account/domain/ActivityTimestamp.kt:13,16` | domain | OK (declaration + factory) |
+
+No hit in `common/`, no hit in `BuckPalConfiguration*`, no hit at the
+package root. All hits are under `account/(domain|adapter)/`. **PASS**.
+
+### Check 6 — No raw `LocalDateTime` in port surface
+
+```
+$ grep -rn 'LocalDateTime' src/main/kotlin/io/reflectoring/buckpal/account/application/port
+$ echo $?
+1
+```
+exit 1, no matches → **PASS**. `LoadAccountPort.loadAccount(_, BaselineDate)`
+is the only port that ever took `LocalDateTime`; sprint-01 already removed
+it. Confirmed by reading
+`src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/LoadAccountPort.kt`
+directly — only `Account` and `BaselineDate` are imported.
+
+### Check 7 — Convention handoff file exists
+
+```
+$ test -f .claude/harness/workspace/handoffs/sprint-04-vo-convention.md
+$ echo $?
+0
+```
+**PASS**.
+
+### Check 8 — 6 keyword grep on the convention file
+
+```
+BaselineDate: PRESENT
+ActivityTimestamp: PRESENT
+BaselineBalanceFigures: PRESENT
+SendMoneyController: PRESENT
+transferThreshold: PRESENT
+ActivityJpaEntity: PRESENT
+```
+All six `grep -q` invocations exit 0 → **PASS**.
+
+### Check 9 — JPA/HQL/SQL/HTTP boundary unchanged vs `5948495`
+
+```
+$ git diff 5948495..HEAD -- \
+    src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt \
+    src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt \
+    src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt \
+    src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt \
+    src/test/resources
+# (no output)
+```
+0 lines of diff, exit 0 → **PASS**. The external HTTP contract, both JPA
+entities, the HQL-bearing repository, and the SQL fixtures are
+byte-identical to the pre-VO baseline.
+
+### Check 10 — No Lombok imports
+
+```
+$ grep -R "import lombok" src/
+$ echo $?
+1
+```
+exit 1, no matches → **PASS**. No Lombok regression anywhere in `src/`.
+
+### Check 11 — ADR 6-keyword coverage in convention
+
+```
+LocalDateTime: PRESENT
+withdrawalBalance: PRESENT
+baselineBalance: PRESENT
+transferThreshold: PRESENT
+SendMoneyController: PRESENT
+BigInteger: PRESENT
+```
+All six keywords present, no `MISSING:` lines → **PASS**.
+
+## File scope audit
+
+```
+$ git diff --stat HEAD
+ .claude/harness/workspace/logs/run-log.md | 4 ++++
+ 1 file changed, 4 insertions(+)
 ```
 
-**Why the deviation is correct, not a regression:**
+The only uncommitted working-tree change is
+`.claude/harness/workspace/logs/run-log.md` (harness-internal). **Zero
+uncommitted production source diff** — the handoff's claim "no production
+source changes were required this sprint" is accurate.
 
-`@DataJpaTest` activates Spring's transactional test infrastructure — there is
-an active `TransactionStatus` bound to the test thread for the entire leaf,
-and Hibernate's `EntityManager` uses the connection from that transaction.
-If the SQL load grabs a *fresh* connection from the pool via
-`dataSource.connection` (which calls `HikariDataSource.getConnection()`
-directly), the script runs against a different connection in a different
-transaction. Two possible outcomes, both bad:
+Untracked files (per `git status`):
+- `.claude/harness/workspace/contracts/sprint-04-contract.md`
+- `.claude/harness/workspace/handoffs/sprint-04-handoff.md`
+- `.claude/harness/workspace/handoffs/sprint-04-vo-convention.md`
 
-1. Default H2/Hikari isolation is `READ_COMMITTED`. The fresh connection's
-   transaction commits the INSERTs into the underlying DB. Hibernate's
-   transaction (via `EntityManager`) then sees them — but at the end of the
-   test, `@DataJpaTest`'s rollback only rolls back Hibernate's transaction,
-   not the fresh-connection one. The data **persists across tests**,
-   leaking into `updates activities` and breaking the `count() == 1L`
-   assertion.
-2. Worse, on a stricter isolation level, Hibernate's transaction wouldn't
-   see the fresh-connection INSERTs at all, and `loadAccount` would return
-   an empty account → the `shouldHaveSize 2` assertion fails.
+All three are inside `.claude/harness/workspace/` — none are in `src/`,
+none in `build.gradle.kts`, none in `README.md`. **Out-of-scope edits: 0**.
 
-`DataSourceUtils.getConnection(dataSource)` is exactly the helper Spring's
-own `@Sql` implementation
-(`org.springframework.test.context.jdbc.SqlScriptsTestExecutionListener`)
-uses to obtain a connection participating in the current transaction. It
-returns the transaction-bound connection if one exists, otherwise a fresh
-one; `releaseConnection` is the matched cleanup. This is **the canonical
-Spring pattern** for joining a test transaction.
+Branch history (4 sprint commits since baseline `5948495`):
 
-Without this deviation, the test would either fail outright or leak rows
-across leaves. With it, behavior matches the original JUnit `@Sql` path
-exactly: SQL loads into the test transaction → leaf assertions see the
-data → rollback at leaf end removes it → next leaf starts clean.
+```
+34813fa feat(domain): sprint-03 — extract BaselineBalanceFigures data class
+49da855 feat(domain): sprint-02 — extract ActivityTimestamp value class
+81ad214 feat(domain): sprint-01 — extract BaselineDate value class
+b3ddc61 chore(harness): sprint-00 — record VO extraction ADR decision table
+```
 
-**Impact on contract grep gates:** none. The relevant gates are:
+Cumulative `git diff 5948495..HEAD --stat -- src/` touches **19 files** (3
+new domain VOs, the matching domain edits to
+`Account`/`Activity`/`ActivityWindow`, ports `LoadAccountPort`/services,
+mapper + adapter, and the matching test edits). Every file is within the
+sprint scopes declared in `product-spec.md`. No spec-banned file
+(`SendMoneyController`, `AccountJpaEntity`, `ActivityJpaEntity`,
+`ActivityRepository`, `src/test/resources`) appears.
 
-- `ScriptUtils` ≥ 1 → satisfied (import + call, count 2).
-- `AccountPersistenceAdapterTest.sql` ≥ 1 → satisfied (line 51).
-- No gate references `dataSource.connection.use` or `DataSourceUtils`
-  literally. The Idiomatic-Kotlin gate "no `!!`" is satisfied (no `!!`).
-- The exact-count gates (`shouldBe`=4, `shouldHaveSize`=2, `lateinit var`=3)
-  are unaffected by the helper-function body.
+## ADR verbatim verification
 
-The handoff transparently declared the deviation. Per evaluator.md the rule
-"git diff showing files the Generator didn't mention in the handoff =
-automatically a FAIL" does not apply — the file IS the in-scope file, and
-the deviation is explicitly called out for review.
+```
+$ diff <(sed -n '10,18p' .claude/harness/workspace/handoffs/sprint-00-vo-candidates.md) \
+       <(sed -n '140,148p' .claude/harness/workspace/handoffs/sprint-04-vo-convention.md)
+$ echo $?
+0
+```
 
-**Verdict on the deviation:** ACCEPTED. Deviation improves correctness and
-is the Spring-idiomatic form. Generator should still note in future
-contracts that `dataSource.connection.use { … }` is **not** equivalent to
-`DataSourceUtils.getConnection(...)` under a `@Transactional` test
-context, so future planners write the latter form upfront.
+The 7-row decision table (header + 7 candidate rows = lines 10–18 in
+`sprint-00-vo-candidates.md`) is **byte-identical** to lines 140–148 in
+`sprint-04-vo-convention.md`. **Verbatim copy confirmed**.
+
+## SOLID Analysis
+
+Re-read the cumulative diff for SOLID concerns. Files inspected:
+`BaselineDate.kt`, `ActivityTimestamp.kt`, `BaselineBalanceFigures.kt`,
+`AccountMapper.kt`, `AccountPersistenceAdapter.kt`, `LoadAccountPort.kt`,
+plus the cumulative diffs to `Account`, `Activity`, `ActivityWindow`,
+`SendMoneyService`, `GetAccountBalanceService`.
+
+### S — Single Responsibility
+
+No violation. Each VO encapsulates exactly one concept (cutoff date,
+activity instant, deposit/withdrawal figure pair). `AccountMapper` still
+just maps; `AccountPersistenceAdapter` still just loads/saves.
+`BaselineBalanceFigures.toBaselineBalance()` is the right place for the
+deposit-minus-withdrawal helper because the domain pair owns the
+arithmetic that turns it into a single balance.
+
+### O — Open/Closed
+
+No violation. No `when (x) { is Foo … is Bar … }` was introduced. The VOs
+are closed for modification (no inheritance) and the domain is extended by
+adding new VO files, not by editing existing ones.
+
+### L — Liskov Substitution
+
+No violation. No subclass narrows a contract; `LoadAccountPort` has
+exactly one implementation (`AccountPersistenceAdapter`) and the
+parameter-type change from `LocalDateTime` to `BaselineDate` was a
+contract-wide refactor, not a narrowing.
+
+### I — Interface Segregation
+
+No violation. The ports (`LoadAccountPort`, `UpdateAccountStatePort`,
+`AccountLock`) are still single-method; nothing forces a caller to depend
+on methods it does not use. `BaselineBalanceFigures`'s single helper
+`toBaselineBalance()` is the only public method besides the data-class
+accessors — minimal surface.
+
+### D — Dependency Inversion
+
+No violation. Domain `BaselineDate.kt`, `ActivityTimestamp.kt`,
+`BaselineBalanceFigures.kt` import only `java.time.LocalDateTime` and the
+in-package `Money`. They do not reach into adapter or application layers.
+`AccountPersistenceAdapter` depends on the domain VOs (correct direction);
+`LoadAccountPort` depends on `Account` and `BaselineDate` (both in
+domain). ArchUnit's `DependencyRuleTests` independently confirms this —
+check 2 PASS.
+
+**SOLID_VIOLATIONS: NO**
 
 ## Bugs found
 
-| File:Line | Defect | Suggested fix |
-|-----------|--------|---------------|
-| (none) | n/a | n/a |
+| # | Severity | Description | Fix |
+|---|----------|-------------|-----|
+| — | — | None found. | — |
 
-No defects. Style nits surfaced in the Idiomatic Kotlin and Code Quality
-sections are explicitly out of contract scope; recording them here for
-the next iteration's awareness.
+No defects. The grep-based contract checks were strong enough to surface
+any layer violation or boundary leak; they all PASS. Spot-reading the 5
+files involved in VO construction confirms idiomatic Kotlin (no `!!` abuse
+beyond the existing `requireNotNull` JPA-null-guard pattern in
+`AccountMapper`, which is appropriate for nullable JPA columns).
 
-Style nits (informational, not bugs):
+## Notes
 
-| File:Line | Observation | Optional improvement |
-|-----------|-------------|----------------------|
-| `AccountPersistenceAdapterTest.kt:75` | Java-style `findAll().get(0)` | `findAll().first()` reads more Kotlin-natively. |
-| `AccountPersistenceAdapterTest.kt:53` | `LocalDateTime.of(2018, 8, 10, 0, 0)` magic numbers carried over verbatim | Could extract a `private val baselineDate = LocalDateTime.of(...)` constant; only worth doing if other tests reuse the value. |
-
-## Contract checklist
-
-### Behavioral correctness
-
-- [x] `./gradlew test --tests "*AccountPersistenceAdapterTest"` → exits 0. Verified above.
-- [x] `./gradlew test` exits 0; 0 failures; aggregate 16 leaves preserved; `AccountPersistenceAdapterTest` contributes 2 leaves. XML evidence above.
-- [x] `TEST-AccountPersistenceAdapterTest.xml` → `tests="2" failures="0" errors="0" skipped="0"`. Confirmed via `grep -oE` on the XML.
-- [x] `TEST-DependencyRuleTests.xml` → `tests="2" failures="0"`. Confirmed.
-- [x] `loads account` leaf reads 2 activities and `Money.of(500L)`. Test passes — assertion would fail otherwise.
-- [x] `updates activities` leaf observes `activityRepository.count() == 1L`. Test passes — assertion would fail otherwise.
-
-### Architectural integrity
-
-- [x] `./gradlew check` exits 0; ArchUnit green; XML evidence above.
-
-### Code quality — AssertJ / JUnit residue gone
-
-- [x] `grep "^import org\.assertj\.core" <file>` → no matches.
-- [x] `grep "assertThat(" <file>` → no matches.
-- [x] `grep "^import org\.junit\.jupiter" <file>` → no matches.
-- [x] `grep "@Test\b" <file>` → no matches.
-
-### Code quality — Kotest / Spring extension / SQL fixture wiring present
-
-- [x] `class AccountPersistenceAdapterTest : DescribeSpec` matches line 23.
-- [x] `import io.kotest.core.spec.style.DescribeSpec` matches line 3.
-- [x] `import io.kotest.extensions.spring.SpringExtension` matches line 4.
-- [x] `override fun extensions()` matches line 25.
-- [x] `@DataJpaTest` present at line 21.
-- [x] `@Import(AccountPersistenceAdapter::class, AccountMapper::class)` present at line 22.
-- [x] `AccountPersistenceAdapterTest.sql` literal present at line 51.
-- [x] `ScriptUtils` present (line 17 import, line 42 call).
-- [x] `shouldHaveSize` count = 2 (1 import + 1 call site).
-- [x] `\bshouldBe\b` count = 4 (1 import + 3 call sites).
-
-### Idiomatic Kotlin — no banned patterns
-
-- [x] `grep "!!" <file>` → no matches.
-- [x] `lateinit var` count = 3 (lines 28, 31, 34).
-- [x] Each `lateinit var` is `@Autowired` (lines 27→28, 30→31, 33→34). Manually verified.
-- [x] `grep "\.shouldBe(" <file>` → no matches (infix only).
-- [x] `grep "\.shouldHaveSize(" <file>` → no matches (infix only).
-
-### Scope — only one file changed
-
-- [x] `git diff --name-only HEAD -- src/` = single line `src/test/kotlin/.../AccountPersistenceAdapterTest.kt`.
-- [x] `src/main/` diff empty.
-- [x] `src/test/kotlin/.../common/` diff empty.
-- [x] `src/test/resources/` diff empty.
-- [x] `build.gradle` diff empty.
-- [x] `src/test/kotlin/.../account/domain/` diff empty.
-- [x] `src/test/kotlin/.../account/application/service/` diff empty.
-- [x] `src/test/kotlin/.../account/adapter/in/web/` diff empty.
-- [x] `src/test/kotlin/.../archunit/` diff empty.
-
-All 30 acceptance checks pass.
+1. **Generator self-check was not trusted** — every command was re-run
+   here. All 11 produced the same result the handoff claimed.
+2. **No-op sprint, intentionally.** The contract permits micro-edits for
+   missed call sites; none were needed. This is healthy: it means sprints
+   01–03 finished the job. The Generator did not gold-plate.
+3. **Gitleaks unavailable** in this sandbox — `command -v gitleaks`
+   returns non-zero. Per the evaluator playbook, this maps to
+   `GITLEAKS_VIOLATIONS: SKIPPED`, not a fail. No secret-leak risk is
+   plausible in any of the sprint-04 artifacts (only a markdown convention
+   note was added).
+4. **ADR table is a true verbatim copy** — `diff` exits 0 between the
+   sprint-00 source and the sprint-04 reproduction. This is the right
+   discipline: the convention file stays useful even if the sprint-00
+   handoff is later archived.
+5. **One Gradle 8 deprecation warning** surfaces on every `:check` run.
+   It is pre-existing (sprint-04 changes are zero LOC of production
+   source) and out of scope for this VO-extraction stream. Worth flagging
+   for a future Gradle-upgrade ticket but does not affect verdict.
+6. **All 4 sprint commits passed ArchUnit DependencyRuleTests at sign-off
+   time** — sprints 01/02/03 each had it as a contract check, and this
+   final sprint re-runs it in isolation (check 2) plus inside the full
+   `check` task (check 1). Both green.
+7. **Idiomatic Kotlin posture.** The three new VOs use the conventions
+   the spec asked for: `@JvmInline value class` for single-field VOs,
+   `data class` for the two-field pair, `companion object { fun now() }`
+   factories where idiomatic, named constructor arguments at the call
+   site, and no reflection-only constructors. The single instance of raw
+   construction outside the domain (`ActivityTimestamp(timestamp)` in
+   `AccountMapper.kt:56`) is correct — the mapper IS the boundary that
+   wraps the JPA primitive.
 
 ## Verdict
 
-Sprint 04 PASSES. The `AccountPersistenceAdapterTest` is now a Kotest
-`DescribeSpec` registering `SpringExtension`, the `@DataJpaTest` +
-`@Import(AccountPersistenceAdapter::class, AccountMapper::class)` slice
-annotations are preserved verbatim, the SQL fixture loads inside the
-`loads account` leaf via `ScriptUtils`, and `@DataJpaTest`'s transactional
-rollback semantics are intact (verified by the `count() == 1L` assertion
-in the second leaf). All 30 acceptance checks pass; the full 16-leaf
-suite is green; ArchUnit is green; no production code, fixtures, build
-script, or out-of-scope test classes were touched.
+**PASS.** Sprint-04 is a clean closing sprint for the VO-extraction
+stream. All 11 contract acceptance checks pass when re-run by the
+Evaluator. The build is green end-to-end (`clean build check` exit 0),
+the three targeted tests pass individually (`DependencyRuleTests`,
+`BuckPalApplicationTests`, `SendMoneySystemTest`), the boundary diff
+against the pre-sprint-00 baseline (`5948495`) for the JPA/HQL/HTTP
+surface is empty, and the VO construction grep contains every hit inside
+the bounded context. Zero Lombok regressions. SOLID is clean. The new
+convention handoff covers all three accepted VOs, all four REJECT
+rationales, both required keyword sets (check 8 and check 11), and copies
+the sprint-00 ADR table byte-for-byte. The Generator did not gold-plate
+(no production code touched this sprint, as the verification grep already
+passed).
 
-The Generator's `DataSourceUtils.getConnection(...)` deviation from the
-contract's literal `dataSource.connection.use { … }` snippet is accepted
-as a correctness fix: under `@DataJpaTest`, a fresh pool connection
-would have either leaked rows across leaves or run in a separate
-transaction invisible to Hibernate; `DataSourceUtils` is the canonical
-Spring helper for joining the active test transaction, matching `@Sql`'s
-internal behavior exactly. The deviation affects zero contract grep
-gates and is transparently declared in the handoff.
+**Migration sign-off:** the VO extraction work is complete. The
+`account/domain/` package now owns `BaselineDate`, `ActivityTimestamp`,
+and `BaselineBalanceFigures`; the application port surface no longer
+leaks `LocalDateTime`; the mapper takes a single `BaselineBalanceFigures`
+instead of two positional `Long`s; the external contracts (HTTP path
+variables, JPA columns, HQL parameters, `@ConfigurationProperties`
+binding) are byte-identical to the pre-VO baseline. Hexagonal boundaries
+are intact and ArchUnit-enforced. Ready to merge.

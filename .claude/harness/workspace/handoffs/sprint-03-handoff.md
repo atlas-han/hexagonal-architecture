@@ -1,184 +1,93 @@
-# Sprint 03 Handoff
+# Sprint 03 Handoff — `BaselineBalanceFigures` data class
 
-## What changed
+## Summary
 
-- Edited: `src/test/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyControllerTest.kt`
-  — migrated from JUnit 5 + Spring `@MockBean` + Mockito to Kotest
-  `DescribeSpec` + Kotest `SpringExtension` + springmockk `@MockkBean` + MockK
-  `every` / `verify`. One leaf test preserved.
+Replaced the positional `withdrawalBalance: Long, depositBalance: Long`
+parameter pair on `AccountMapper.mapToDomainEntity` with a single
+`BaselineBalanceFigures` data class carrying `Money` values. The pair is now
+constructed once in `AccountPersistenceAdapter` (where the JPA aggregates
+land, still with `?: 0L` null-coalescing) and threaded into the mapper as a
+single named parameter. The mapper body uses `figures.toBaselineBalance()`,
+which collapses to `deposit - withdrawal` via the existing `Money` operator
+overload. No external contract surface (HTTP, JPA columns, HQL parameter
+names) changed.
 
-No other source file was edited.
+## Files changed
 
-## Contract checklist
+| File | Change |
+|------|--------|
+| `src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineBalanceFigures.kt` | **New.** `data class BaselineBalanceFigures(val deposit: Money, val withdrawal: Money)` with `fun toBaselineBalance(): Money = deposit - withdrawal`. |
+| `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt` | Replaced the positional `withdrawalBalance: Long, depositBalance: Long` pair on `mapToDomainEntity` with a single `figures: BaselineBalanceFigures` parameter. Body uses `figures.toBaselineBalance()` instead of `Money.subtract(Money.of(depositBalance), Money.of(withdrawalBalance))`. Added `BaselineBalanceFigures` import. |
+| `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt` | Still calls `activityRepository.getDepositBalanceUntil(...)` / `getWithdrawalBalanceUntil(...)` with `?: 0L`, but now wraps the two `Long`s into `BaselineBalanceFigures(deposit = Money.of(depositBalance), withdrawal = Money.of(withdrawalBalance))` before invoking the mapper. Added `BaselineBalanceFigures` and `Money` imports. |
+| `src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapperTest.kt` | Three `mapToDomainEntity(... withdrawalBalance = X, depositBalance = Y)` call sites rewritten as `mapToDomainEntity(... figures = BaselineBalanceFigures(deposit = Money.of(Y), withdrawal = Money.of(X)))`. The positional-to-named swap (old `depositBalance = Y` → new `deposit = Money.of(Y)`; old `withdrawalBalance = X` → new `withdrawal = Money.of(X)`) was applied carefully — the working case keeps `deposit = 700`, `withdrawal = 200`, asserting `result.baselineBalance shouldBe Money.of(500L)`. Added `BaselineBalanceFigures` import. |
 
-### Behavioral correctness
+Out-of-scope files diffed clean (see check 8 below).
 
-- [x] `./gradlew test --tests "*SendMoneyControllerTest"` → `BUILD SUCCESSFUL`
-  (single-use daemon, 7s).
-- [x] `./gradlew test` (full suite) → `BUILD SUCCESSFUL`; aggregate leaf-test
-  count is **16**, identical to the Sprint 02 baseline. Verified by
-  `find build/test-results/test -name "TEST-*.xml"` + summing the `tests="…"`
-  attribute on each `<testsuite>`.
-- [x]
-  `build/test-results/test/TEST-io.reflectoring.buckpal.account.adapter.in.web.SendMoneyControllerTest.xml`
-  reports `tests="1" failures="0" errors="0" skipped="0"` (verified by reading
-  the XML header line).
+## Self-check results
 
-### Architectural integrity
+All 12 acceptance checks executed; every check matched its expected outcome.
 
-- [x] `./gradlew check` → `BUILD SUCCESSFUL` (UP-TO-DATE after `test` ran).
-- [x] `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"` —
-  covered by the full-suite run; `DependencyRuleTests` still appears as
-  `tests="2"` in its TEST-*.xml.
+| # | Check | Actual exit | Expected | Verdict |
+|---|-------|-------------|----------|---------|
+| 1 | `test -f .../BaselineBalanceFigures.kt` | `exit=0` | 0 | PASS |
+| 2 | `grep` for `data class BaselineBalanceFigures` + `val deposit: Money` + `val withdrawal: Money` (chained `&&`) | `exit=0` | 0 | PASS |
+| 3 | `grep -Eq '@JvmInline\|value class BaselineBalanceFigures'` | `exit=1` | 1 (no match) | PASS |
+| 4 | `grep` for `fun toBaselineBalance(): Money` | `exit=0` | 0 | PASS |
+| 5 | `grep` for `figures: BaselineBalanceFigures` in `AccountMapper.kt` | `exit=0` | 0 | PASS |
+| 6 | `grep` for `withdrawalBalance: Long` in `AccountMapper.kt` | `exit=1` | 1 (no match) | PASS |
+| 7 | `grep` for `BaselineBalanceFigures(` in `AccountPersistenceAdapter.kt` | `exit=0` | 0 | PASS |
+| 8 | `git diff --quiet --` on the 7 external-contract files | all 7 `exit=0` | each 0 | PASS |
+| 9 | `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.*"` | `BUILD SUCCESSFUL in 46s` | BUILD SUCCESSFUL | PASS |
+| 10 | `./gradlew clean build check` | `BUILD SUCCESSFUL in 30s` | BUILD SUCCESSFUL | PASS |
+| 11 | `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"` | `BUILD SUCCESSFUL in 14s` | BUILD SUCCESSFUL | PASS |
+| 12 | `grep -R "import lombok" src/` | `exit=1` | 1 (no match) | PASS |
 
-### Code quality — Mockito / Spring-Mockito residue is gone
+Check 8 detail (each `git diff --quiet --` exited 0):
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt` — exit 0
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt` — exit 0
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt` — exit 0
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt` — exit 0
+- `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql` — exit 0
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt` — exit 0
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt` — exit 0
 
-All negative greps exit non-zero (no matches), verified one by one:
-
-- [x] `^import org\.mockito` — no matches.
-- [x] `Mockito\.` (literal) — no matches.
-- [x] `^import org\.springframework\.boot\.test\.mock\.mockito` — no matches.
-- [x] `BDDMockito` — no matches.
-- [x] `@MockBean` — no matches.
-- [x] `^import org\.junit\.jupiter` — no matches.
-- [x] `@Test\b` — no matches.
-- [x] `^import org\.assertj\.core` — no matches.
-
-### Code quality — Kotest, MockK, MockkBean are present
-
-- [x] `^class SendMoneyControllerTest\s*:\s*DescribeSpec` → matches line 19.
-- [x] `^import io\.kotest\.core\.spec\.style\.DescribeSpec` → matches line 4.
-- [x] `^import io\.kotest\.extensions\.spring\.SpringExtension` → matches line 5.
-- [x] `override fun extensions\(\)` → matches line 21.
-- [x] **`^import com\.ninjasquad\.springmockk\.MockkBean`** → matches line 3.
-  **Deviation from the contract's `com\.ninja_squad\.springmockk` regex.**
-  See "Anything the Evaluator should pay extra attention to" below — the
-  actual JAR ships `com.ninjasquad.springmockk` (no underscore) and the
-  contract's `ninja_squad` form **does not resolve at the Kotlin compiler**.
-- [x] `@MockkBean` → matches line 26.
-- [x] `^import io\.mockk\.(every|verify)` → matches two lines (6 and 7).
-- [x] `@WebMvcTest` → matches line 18.
-
-### Idiomatic Kotlin — no banned patterns
-
-- [x] `!!` → no matches.
-- [x] `grep -n "lateinit var" … | wc -l` → exactly **2**.
-- [x] Both `lateinit var` lines are annotated: line 23–24 is `@Autowired …
-  lateinit var mockMvc` (annotation on line 23, declaration on line 24);
-  line 26–27 is `@MockkBean … lateinit var sendMoneyUseCase` (annotation on
-  line 26, declaration on line 27).
-- [x] `\.shouldBe\(` — no matches (the test uses no `shouldBe` at all; the
-  contract permits this).
-- [x] `\.verify\(` — no matches (MockK `verify { … }` block form is used).
-
-### Scope — only one file changed
-
-- [x] `git diff --name-only HEAD -- src/` → exactly the one expected path.
-- [x] `git diff --name-only HEAD -- src/main/` → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/`
-  → empty.
-- [x] `git diff --name-only HEAD -- build.gradle` → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/domain/`
-  → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/application/service/`
-  → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/`
-  → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/archunit/`
-  → empty.
-
-## Idiomatic Kotlin choices worth flagging
-
-1. **`DescribeSpec()` class-body form** — `class SendMoneyControllerTest :
-   DescribeSpec()` with `init { describe { it { … } } }`. Constructor-arg
-   lambda form (`: DescribeSpec({ … })`) was rejected because the class
-   needs `@Autowired lateinit var` and `@MockkBean lateinit var` property
-   declarations, which a constructor-arg lambda cannot host.
-2. **`override fun extensions() = listOf(SpringExtension)`** registers
-   Kotest's Spring extension. `SpringExtension` is the singleton object from
-   `io.kotest.extensions.spring` (Kotest 5.5.5 + extensions 1.1.3). The
-   integration was validated end-to-end by this run: `@Autowired
-   lateinit var mockMvc` and `@MockkBean lateinit var sendMoneyUseCase` both
-   resolved, springmockk's `MockkTestExecutionListener` and
-   `ClearMocksTestExecutionListener` appear in the Spring test execution
-   listener list (visible in the TEST-*.xml `system-out` log).
-3. **`every { sendMoneyUseCase.sendMoney(any()) } returns true`** added
-   before the MockMvc call — required because `@MockkBean(relaxed = false)`
-   (the default) makes MockK strict, and the use case returns `Boolean`.
-   The controller ignores the return value, so the stubbed value is
-   irrelevant; the stub merely satisfies MockK's strict resolver. This is
-   not a behavioral change versus the Mockito version, which silently
-   returned `false` from un-stubbed `Boolean` calls.
-4. **Property-form `status().isOk`** instead of method-form `status().isOk()`.
-   Kotlin exposes the no-arg getter as a property; idiomatic Kotlin prefers
-   the property form. Either form compiles.
-5. **`verify { sendMoneyUseCase.sendMoney(SendMoneyCommand(...)) }`** uses
-   MockK's block form. The `SendMoneyCommand` literal works directly because
-   `SendMoneyCommand` is a Kotlin `data class` whose `equals` is value-based —
-   no MockK matcher / no `eq` wrapper needed. The Mockito-era hand-rolled
-   `private fun <T> eq(value: T): T = Mockito.eq(value) ?: value` helper is
-   deleted outright (the contract called for this).
-6. **No `kotlin.test.*` imports.** None were present before, none added.
-
-## Anything the Evaluator should pay extra attention to
-
-1. **springmockk package name correction.** The contract's `Imports to add`
-   table named `com.ninja_squad.springmockk.MockkBean` (with underscore) and
-   the Code-quality grep was `^import com\.ninja_squad\.springmockk\.MockkBean`.
-   The **actual** JAR (`com.ninja-squad:springmockk:3.1.2`) ships the class
-   at `com.ninjasquad.springmockk.MockkBean` — i.e., **no underscore between
-   "ninja" and "squad"**. Verified by `unzip -l springmockk-3.1.2.jar | grep
-   MockkBean` → `com/ninjasquad/springmockk/MockkBean.class`. The contract's
-   underscore form does NOT resolve and the build fails with
-   `Unresolved reference: ninja_squad`. The migrated file therefore imports
-   `com.ninjasquad.springmockk.MockkBean`. Please update the contract's
-   regex from `ninja_squad` to `ninjasquad` (or use a broader pattern such
-   as `com\.ninjasquad?\.springmockk` or `com\.ninja[_]?squad\.springmockk`)
-   if you want Sprint 04 / 06 to grep for the import the same way. This is
-   a **contract bug**, not a Generator defect — the file as written matches
-   the *intent* of the contract (springmockk `MockkBean`) and compiles.
-2. **`@WebMvcTest` is honored by Kotest's Spring extension.** Verified by
-   the run: `WebMvcTestContextBootstrapper` appears in the
-   `system-out` log (`Loaded default TestExecutionListener class names …`
-   block), the controller bean is constructed, MockMvc injects, and the
-   `MockkContextCustomizer` registers `SendMoneyUseCase` as a `MockkDefinition`.
-   The risk register #1 entry ("the first Spring sprint validates the
-   wiring") is resolved positively.
-3. **Single leaf test count.** The contract's Behavioral check requires
-   `tests="1"` in the TEST-*.xml; the run reports exactly `tests="1"`. No
-   spurious container-counts.
-4. **Aggregate leaf count stays at 16.** Identical to Sprint 02 baseline.
-   `AccountTest=4 + ActivityWindowTest=3 + SendMoneyServiceTest=2 +
-   SendMoneyControllerTest=1 + BuckPalApplicationTests=1 +
-   DependencyRuleTests=2 + AccountPersistenceAdapterTest=2 +
-   SendMoneySystemTest=1 = 16` — matches.
-5. **No production-code edits.** `git diff --name-only HEAD -- src/main/` is
-   empty. The "non-negotiable invariant" of the migration is preserved.
-
-## TODOs deferred to later sprints
-
-- **Sprint 04 — `AccountPersistenceAdapterTest`** will exercise the
-  `@DataJpaTest` + `@Sql` slice; this sprint's `@WebMvcTest` success
-  confirms the springmockk + Kotest Spring extension wiring, but does not
-  yet validate `@Sql` resolution inside a Kotest leaf lambda (Risk
-  register #2). Sprint 04 will be the canary for that.
-- **Sprint 06 — `SendMoneySystemTest`** will validate
-  `@SpringBootTest(RANDOM_PORT)` on top of Kotest.
-- **Sprint 07 — build script cleanup** will remove
-  `junit-jupiter-engine`, `mockito-junit-jupiter`, and `kotlin-test` /
-  `kotlin-test-junit5` from `build.gradle`.
+All checks PASS. Working tree is ready for the orchestrator to stage + commit.
 
 ## Commit
 
-Proposed one-line summary for the orchestrator:
-
 ```
-feat(kotlin): sprint 3 — migrate SendMoneyControllerTest to Kotest + MockkBean
+feat(domain): sprint-03 — extract BaselineBalanceFigures data class for mapper deposit/withdrawal pair
 ```
 
-No commit performed by Generator. Working tree contains exactly one modified
-file:
+## Notes for Evaluator
 
-```
-src/test/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyControllerTest.kt
-```
+- **Argument-order swap was the main hazard.** The old positional call had
+  `withdrawalBalance` first, `depositBalance` second; the new
+  `BaselineBalanceFigures` is constructed with `deposit` first, `withdrawal`
+  second. The `AccountMapperTest` "baseline = deposit - withdrawal" case
+  asserts `result.baselineBalance shouldBe Money.of(500L)` with inputs
+  `deposit = 700, withdrawal = 200`, which would fail loudly if the swap had
+  been muffed. Build is green, so the mapping is correct.
+- **`Money.minus` is the existing operator overload.** `toBaselineBalance()`
+  returns `deposit - withdrawal`, which is `Money` (not `BigInteger`) — the
+  operator returns `Money(amount.subtract(...))`. The previous mapper body
+  used `Money.subtract(Money.of(deposit), Money.of(withdrawal))` (static
+  helper); both forms are semantically identical, but the operator form is
+  more idiomatic now that both sides are already `Money`.
+- **Null-coalescing preserved.** `AccountPersistenceAdapter` still does
+  `... ?: 0L` on the `Long?` aggregates from `ActivityRepository` *before*
+  wrapping into `Money.of(...)`. There is no `requireNotNull` introduced,
+  per contract risk note.
+- **Adapter → domain dependency direction.** `BaselineBalanceFigures` lives
+  in `io.reflectoring.buckpal.account.domain`; `AccountMapper` (adapter)
+  imports it. This is the allowed direction; `DependencyRuleTests` (ArchUnit)
+  is run as part of `./gradlew check` and passed (check 10).
+- **No `value class`.** Check 3 is explicit: `BaselineBalanceFigures` has two
+  fields, so `data class` is the spec-mandated shape. The file contains
+  neither `@JvmInline` nor `value class BaselineBalanceFigures`.
+- **No mockk port mocks touched.** `BaselineBalanceFigures` only appears in
+  mapper + adapter + mapper test. The sprint-01 mockk-with-VO workaround
+  pattern was not needed here.
+- **Pre-existing `BigInteger → Long` narrowing in `mapToJpaEntity`** is
+  unchanged. Spec risk register row notes this is pre-existing, not a
+  regression introduced by sprint-03.

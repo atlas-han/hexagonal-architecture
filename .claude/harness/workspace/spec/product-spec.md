@@ -1,369 +1,434 @@
-# Product Spec — Kotest + MockK Test Migration
+# Product Spec — Domain Value Object Extraction
 
 ## Migration goal
 
-Migrate every Kotlin test under `src/test/kotlin/**` from its current
-**JUnit 5 + Mockito + kotlin-test** stack to **Kotest** (with the appropriate
-spec style per test class — `DescribeSpec`, `BehaviorSpec`, or `FunSpec`) plus
-**MockK** for mocking. Test fixtures (`AccountTestData`, `ActivityTestData`),
-SQL resources, ArchUnit rules, and all production code remain untouched in
-behavior; only the test framework changes. The Spring Boot integration tests
-(`@SpringBootTest`, `@WebMvcTest`, `@DataJpaTest`, `SendMoneySystemTest`,
-`BuckPalApplicationTests`) must continue to work — they will be rehosted under
-Kotest specs using `kotest-extensions-spring` plus `springmockk` for
-`@MockkBean`. `./gradlew test` must remain green at every sprint boundary.
+Inspect the Kotlin domain layer of BuckPal (`io.reflectoring.buckpal.account.domain.**`
+plus its immediate collaborators in `application/**` and `adapter/**`) for
+primitive-typed fields, parameters, and method signatures that carry domain
+meaning today but are not represented by a Value Object. For each well-founded
+candidate, extract a Kotlin `@JvmInline value class` (or `data class`, when
+multiple fields belong together) that makes the meaning explicit and the API
+type-safe. Do **not** invent VOs for primitives that already have one
+(`Money`, `Account.AccountId`, `Activity.ActivityId`); do **not** modify the
+HTTP path-variable contract (`/accounts/send/{Long}/{Long}/{Long}`), the JSON
+body shape, or the JPA column types in `AccountJpaEntity` / `ActivityJpaEntity`.
+
+The work proceeds as a small read-only analysis sprint followed by a focused
+extraction sprint per VO, and concludes with a verification + convention sprint.
 
 ## Non-negotiable invariants
 
-These hold true at the end of every sprint:
+These must hold true at every sprint boundary (i.e. after every Generator
+batch the Evaluator accepts):
 
-- The production source tree under `src/main/kotlin/io/reflectoring/buckpal/**`
-  is **not modified** by any sprint in this migration. Only `src/test/**` and
-  `build.gradle` change.
-- Public package paths under `io.reflectoring.buckpal.**` (both main and test)
-  remain stable. Test classes keep their existing package; only the class body
-  and surrounding spec wrapper change.
-- The set of behaviors verified by the test suite does not shrink. Every
-  assertion that exists today must have an equivalent assertion in the migrated
-  spec (no `xit`/`!`/`Ignored` to mask work). Total test count, when counted as
-  Kotest *leaf tests* (each `it` / `then` / individual `FunSpec` block),
-  matches or exceeds the JUnit `@Test` count of the same class.
-- ArchUnit dependency (`com.tngtech.archunit:archunit:0.16.0`) and its rules in
-  `io.reflectoring.buckpal.archunit.*` plus `DependencyRuleTests` keep passing
-  with semantically identical checks. The ArchUnit classes themselves
-  (`HexagonalArchitecture`, `Adapters`, `ApplicationLayer`,
-  `ArchitectureElement`) are **not** rewritten as specs — they are support
-  types, not tests.
-- The Spring Boot application still boots end-to-end via `SendMoneySystemTest`
-  and still serves `POST /accounts/send/{sourceAccountId}/{targetAccountId}/{amount}`.
-- `./gradlew test` exits 0 at every sprint boundary. Partial migration is
-  allowed mid-sprint, but commits land only at green boundaries.
-- `spring-boot-starter-test`, `archunit`, `h2`, and
-  `junit-platform-launcher` remain as test dependencies. `kotlin-test` and
-  `kotlin-test-junit5` are removed by the final sprint, as are
-  `junit-jupiter-engine` and `mockito-junit-jupiter` (replaced by transitive
-  JUnit Platform from `kotest-runner-junit5`).
+- **External contracts unchanged.** The HTTP endpoint
+  `POST /accounts/send/{sourceAccountId}/{targetAccountId}/{amount}` still
+  binds three `Long` path variables and returns the same status codes. JSON
+  request/response shapes (if any) are byte-for-byte identical.
+- **JPA schema unchanged.** `AccountJpaEntity` and `ActivityJpaEntity` keep
+  their column names, column types, and `@GeneratedValue` semantics. The
+  `account` and `activity` tables are untouched. `ActivityRepository`'s
+  `@Query` HQL strings keep their `:ownerAccountId`, `:since`, `:until`,
+  `:accountId` parameter names with their current Java types.
+- **Hexagonal package boundaries unchanged.** All public package paths under
+  `io.reflectoring.buckpal.**` remain stable. New VO types live in
+  `io.reflectoring.buckpal.account.domain` (the domain owns its vocabulary)
+  unless explicitly noted otherwise.
+- **ArchUnit rules pass.** `DependencyRuleTests` (Kotest `FunSpec`) continues
+  to import `io.reflectoring.buckpal..` and validate the hexagonal layering.
+  No new dependency from `domain` outward.
+- **Existing tests stay green without weakening assertions.** All Kotest
+  specs (`AccountTest`, `ActivityTest`, `ActivityWindowTest`, `MoneyTest`,
+  `AccountFactoriesTest`, `SendMoneyServiceTest`, `GetAccountBalanceServiceTest`,
+  `MoneyTransferPropertiesTest`, `ThresholdExceededExceptionTest`,
+  `AccountMapperTest`, `AccountPersistenceAdapterTest`, `SendMoneyControllerTest`,
+  `SendMoneySystemTest`, `BuckPalApplicationTests`, `SelfValidatingTest`) keep
+  passing.
+- **`./gradlew clean build check` is green** at the end of every sprint.
+- **No production-code changes in sprint-00.** Sprint-00 is analysis-only; its
+  deliverable is a table inside the spec workspace (not in production source)
+  documenting which candidates were accepted and which were rejected.
+- **No new VOs for primitives already wrapped.** Do not introduce a second
+  type for `Money`, `Account.AccountId`, or `Activity.ActivityId`.
 
-## Target Kotest + MockK conventions
+## Target Kotlin conventions
 
-Guidance for the Generator (not prescriptive line-by-line):
+These idioms guide the Generator. They are guidance, not law — deviate when
+the code reads more clearly without them.
 
-- **Spec style selection** — pick exactly **one** spec style per class, based
-  on the existing test shape:
-  - Pure-unit tests with several scenarios per behavior (`AccountTest`,
-    `ActivityWindowTest`, `SendMoneyServiceTest`) → `BehaviorSpec`
-    (`given` / `when` / `then`), which maps cleanly onto the current
-    `given*` / `when*` / `then*` helper naming and BDDMockito flow.
-  - Single-behavior smoke tests (`BuckPalApplicationTests`, the controller
-    happy-path `SendMoneyControllerTest`, system test `SendMoneySystemTest`)
-    → `DescribeSpec` (`describe` / `it`) or `FunSpec`; choose `FunSpec` when
-    there is one flat assertion block, `DescribeSpec` when nesting helps
-    readability.
-  - Persistence test (`AccountPersistenceAdapterTest`) → `DescribeSpec` to
-    group `loadsAccount` and `updatesActivities`.
-  - ArchUnit hosting (`DependencyRuleTests`) → `FunSpec` (each `@Test` becomes
-    one `test("...") { ... }` block); body logic unchanged.
-- **Assertions** — prefer Kotest matchers
-  (`shouldBe`, `shouldHaveSize`, `shouldBeTrue`, `shouldBeFalse`,
-  `shouldContain`) over AssertJ in migrated specs. AssertJ may stay only if
-  retaining a specific matcher is materially clearer; do not add new AssertJ
-  usage. `kotest-assertions-core` is the source of truth.
-- **Mocking** —
-  - `Mockito.mock(X::class.java)` → `mockk<X>()`.
-  - `BDDMockito.given(x).willReturn(y)` → `every { x } returns y`.
-  - `BDDMockito.then(m).should().foo(...)` → `verify { m.foo(...) }` (use
-    `verify(exactly = 0)` for the `times(0)` cases and `verify(exactly = N)`
-    elsewhere).
-  - `ArgumentCaptor` → MockK `slot<T>()` + `capture(slot)`. The hand-rolled
-    `eq` / `capture` null-safety wrappers in `SendMoneyServiceTest` /
-    `SendMoneyControllerTest` are deleted — MockK is Kotlin-native and has no
-    null-matcher problem.
-  - `@MockBean` (Spring) → `@MockkBean` from `com.ninja-squad:springmockk`.
-- **Spring integration** — adopt **`kotest-extensions-spring`** for
-  Spring-managed tests. Each Spring-flavored spec extends the chosen Kotest
-  spec base class and adds `override fun extensions() = listOf(SpringExtension)`
-  (or the equivalent listener). The existing Spring annotations
-  (`@SpringBootTest`, `@WebMvcTest`, `@DataJpaTest`, `@Sql`, `@Import`,
-  `@Autowired`, `@MockkBean`) remain on the class / property — Kotest's
-  Spring extension wires them. `useJUnitPlatform()` in Gradle stays;
-  `kotest-runner-junit5` registers itself as a JUnit Platform engine, so
-  Spring's JUnit 5 integration keeps working underneath.
-- **Test data builders** — `AccountTestData` and `ActivityTestData` (currently
-  Kotlin `object`s with `@JvmStatic`) stay as-is. Specs import their builders
-  unchanged. The `@JvmStatic` annotations are harmless and out of scope.
-- **No coroutine APIs** — none of the existing tests are suspend functions, so
-  `coEvery` / `coVerify` are mentioned in the user intent only for
-  completeness; do not introduce coroutines where none exist. If MockK rejects
-  a suspend stub later, fall back to `coEvery`.
-- **Property naming** — keep `val mockMvc: MockMvc` etc. as Spring-injected
-  `lateinit var` properties where the existing code does so; only switch to
-  Kotest's `bean` / `bind` patterns if the simpler `lateinit var` form breaks.
+- **Prefer `@JvmInline value class` for single-field VOs** that wrap a primitive
+  or a single domain object. This keeps allocation cost near-zero on the JVM
+  while giving us a distinct type.
+- **Prefer `data class` for multi-field VOs** (when two or more values belong
+  together as one concept, e.g. a deposit/withdrawal pair).
+- **VO constructors validate eagerly** via `init { require(...) }` for any
+  invariant (non-negative, not-future, etc.). If the field has no meaningful
+  invariant, omit the `init` block.
+- **Companion-object factory `of(...)` is acceptable** when the call site
+  reads better (mirrors `Money.of(Long)`), but is not required.
+- **Operator overloads only when they read naturally.** Do not add `plus`/
+  `minus` to a date-like VO unless a sprint actually needs it.
+- **Java interop.** VOs that may be referenced from `internal` JPA mappers,
+  Spring-managed beans, or Kotest specs do not need `@JvmStatic` / `@JvmField`
+  unless an existing caller relies on a static form. Where they do (e.g.
+  test data builders), preserve the call shape.
+- **No reflection-only constructors.** VOs are plain Kotlin types; Jackson and
+  JPA never see them (we keep adapters mapping to/from primitives at the
+  edges).
+- **One VO = one file** under `account/domain/`, named after the VO.
 
-## Sprint plan
+## Candidate inventory (informational; final list decided in sprint-00)
 
-Each sprint below is independently green: after the sprint's commit,
-`./gradlew test` exits 0 and the JUnit + Kotest engines coexist on the JUnit
-Platform. Order is chosen so each sprint touches one logical file cluster,
-matches the layered architecture, and never depends on a later sprint.
+Read-only inspection of the current code surfaced the following primitive
+leaks. Sprint-00 produces the binding decision table; later sprints implement
+each accepted candidate.
 
-### Sprint 00 — build config: introduce Kotest + MockK alongside the existing stack
+| # | Location | Current type | Domain meaning | Recommendation |
+|---|----------|--------------|----------------|----------------|
+| 1 | `LoadAccountPort.loadAccount(_, baselineDate: LocalDateTime)`, `SendMoneyService` (`LocalDateTime.now().minusDays(10)`), `GetAccountBalanceService` (`LocalDateTime.now()`), `ActivityRepository.findByOwnerSince(_, since)`, `getDepositBalanceUntil(_, until)`, `getWithdrawalBalanceUntil(_, until)` | `LocalDateTime` | Cutoff for the activity window — "consider activities at-or-after this instant for the window; everything strictly before contributes to the baseline." | **Extract `BaselineDate` `@JvmInline value class`** (sprint-01). Strong: this concept is distinct from "when an activity happened" and is currently re-derived ad-hoc in three places. |
+| 2 | `Activity.timestamp: LocalDateTime`, `ActivityWindow.getStartTimestamp()/getEndTimestamp()`, `ActivityWindowTest`, `ActivityJpaEntity.timestamp`, `ActivityTestData` | `LocalDateTime` | The instant a money-movement Activity occurred. Today it shares a type with the unrelated baseline cutoff. | **Extract `ActivityTimestamp` `@JvmInline value class`** (sprint-02). Justifies type-distinction from `BaselineDate`. JPA column stays `LocalDateTime` — mapper converts at the edge. |
+| 3 | `AccountMapper.mapToDomainEntity(_, _, withdrawalBalance: Long, depositBalance: Long)` and its single caller `AccountPersistenceAdapter` (computing `withdrawalBalance` / `depositBalance` as `Long?` from JPA aggregates) | two positional `Long`s | A pair of partial balances (sum of withdrawals before baseline, sum of deposits before baseline). Two values that belong together; argument-order bugs are easy and silent. | **Extract `BaselineBalanceFigures(deposit: Money, withdrawal: Money)` `data class`** (sprint-03) with a `toBaselineBalance(): Money` helper that returns `deposit - withdrawal`. Mapper accepts one parameter instead of two raw `Long`s. |
+| 4 | `Account.baselineBalance: Money` | `Money` | "Balance valid before the first activity in the window." Already a Money, but undistinguished from any other Money in the codebase. | **REJECT** — would add ceremony with no observable safety win; arithmetic with other `Money` instances would force constant unwrapping. Documented as rejected in sprint-00 ADR. |
+| 5 | `BuckPalConfigurationProperties.transferThreshold: Long` | `Long` | Configured maximum transfer amount (minor units). | **REJECT for VO** — Spring `@ConfigurationProperties` binds primitives from YAML/properties; introducing a VO here forces a `Converter`. Already wrapped exactly once in `BuckPalConfiguration#moneyTransferProperties` into `Money.of(...)`. Documented as rejected in sprint-00 ADR. |
+| 6 | `SendMoneyController` path variables (`Long`, `Long`, `Long`) | `Long` | External HTTP contract for account ids and amount. | **REJECT for VO** — the HTTP path is part of the public contract. Wrapping is already done inside the controller body (`Account.AccountId(...)`, `Money.of(...)`) which is the correct boundary. Documented in sprint-00. |
+| 7 | `Money.amount: BigInteger` ↔ JPA `Long amount` (in `AccountMapper.mapToJpaEntity` via `activity.money.amount.toLong()`) | silent narrowing | Possible overflow when a Money exceeds `Long.MAX_VALUE`. | **Out of scope** — not a missing VO, but recorded in the risk register. |
 
-- **Files in scope**:
-  - `build.gradle`
-- **User-visible goal**: Add Kotest (JUnit5 runner + core assertions + Spring
-  extension) and MockK (core + springmockk) as test dependencies, **without
-  removing** any existing test dependency. The repository continues to compile
-  every existing test class unchanged.
-- **Hard exit criteria**:
-  - `build.gradle` declares `io.kotest:kotest-runner-junit5`,
-    `io.kotest:kotest-assertions-core`,
-    `io.kotest:kotest-extensions-spring`,
-    `io.mockk:mockk`, and `com.ninja-squad:springmockk` at versions
-    compatible with Kotlin 1.6.21 / Spring Boot 2.4.3
-    (Kotest 5.5.x line, MockK 1.13.x, springmockk 3.x).
-  - `junit-jupiter-engine`, `mockito-junit-jupiter`, `kotlin-test`,
-    `kotlin-test-junit5`, `archunit`, `junit-platform-launcher`, `h2`, and the
-    `spring-boot-starter-test` declaration are **unchanged**.
-  - `test { useJUnitPlatform() }` block is unchanged.
-  - `./gradlew dependencies --configuration testRuntimeClasspath | grep -E "(kotest|mockk)"` lists the new artifacts.
-  - `./gradlew test` exits 0; no test classes are edited in this sprint.
-- **Out of scope**: any change to `src/test/**`; removing any existing test
-  dependency; switching the build script to `.kts`; bumping Kotlin / Spring
-  Boot versions; touching `compileKotlin` options.
-
-### Sprint 01 — migrate pure-domain unit tests (`account/domain/*`)
-
-- **Files in scope**:
-  - `src/test/kotlin/io/reflectoring/buckpal/account/domain/AccountTest.kt`
-  - `src/test/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindowTest.kt`
-- **User-visible goal**: Rewrite these two zero-dependency unit tests as
-  `BehaviorSpec` classes using Kotest matchers. No mocks involved (these tests
-  use only `AccountTestData` builders), so this is the simplest sprint and
-  also the smoke test that Sprint 00 wired Kotest in correctly.
-- **Hard exit criteria**:
-  - Both files extend `io.kotest.core.spec.style.BehaviorSpec` (or `FunSpec`
-    if the Generator prefers for a 3-test file — must be one consistent
-    choice per file).
-  - Zero references to `org.junit.jupiter.api.*` and zero references to
-    `org.assertj.core.api.*` in these two files.
-  - Each `@Test` becomes one `then(...)` (BehaviorSpec) or `test(...)` /
-    `it(...)` block; behavior asserted is identical.
-  - `./gradlew test --tests "io.reflectoring.buckpal.account.domain.*"` exits
-    0 and reports the same number of leaf tests as before (`AccountTest`: 4;
-    `ActivityWindowTest`: 3).
-  - `./gradlew test` (full suite) exits 0.
-- **Out of scope**: `account/application/**`, `account/adapter/**`, any test
-  outside `account/domain/`, fixture files in `common/`, build script.
-
-### Sprint 02 — migrate `SendMoneyServiceTest` (Mockito → MockK, BehaviorSpec)
-
-- **Files in scope**:
-  - `src/test/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyServiceTest.kt`
-- **User-visible goal**: Replace Mockito + BDDMockito + the hand-rolled
-  `eq` / `capture` / `accountSentinel` null-safety wrappers with MockK
-  primitives (`mockk<T>()`, `every { } returns`, `verify { }`, `slot<T>()`).
-  Express the two existing scenarios as a `BehaviorSpec`
-  (`given` / `when` / `then`).
-- **Hard exit criteria**:
-  - Class extends `BehaviorSpec`. No `@Test` annotation remains in the file.
-  - All Mockito-related imports
-    (`org.mockito.*`, `org.mockito.BDDMockito.*`) are gone.
-  - The `accountSentinel`, `eq(...)`, and `capture(...)` helpers are deleted —
-    MockK has no need for them.
-  - `ArgumentCaptor.forClass(Account::class.java)` is replaced by
-    `slot<Account>()` (or `mutableListOf<Account>()` with `capture(list)` if
-    multiple captures are needed — both are acceptable).
-  - The two original scenarios
-    (`givenWithdrawalFails_thenOnlySourceAccountIsLockedAndReleased`,
-    `transactionSucceeds`) are preserved as leaf tests with equivalent
-    assertions about `lockAccount`, `releaseAccount`, `withdraw`, `deposit`,
-    and `updateActivities` call counts.
-  - `./gradlew test --tests "io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest"` exits 0.
-  - `./gradlew test` (full suite) exits 0.
-- **Out of scope**: production code under
-  `src/main/kotlin/io/reflectoring/buckpal/account/application/service/**`;
-  any other test file; fixtures in `common/`.
-
-### Sprint 03 — migrate `SendMoneyControllerTest` (`@WebMvcTest` + `@MockkBean`)
-
-- **Files in scope**:
-  - `src/test/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyControllerTest.kt`
-- **User-visible goal**: Migrate the web-slice test to a Kotest spec that uses
-  the Spring extension. Replace `@MockBean` with `@MockkBean` from springmockk
-  and drop the `eq` wrapper.
-- **Hard exit criteria**:
-  - Class extends a Kotest spec (`DescribeSpec` or `FunSpec`) and registers
-    Kotest's `SpringExtension` via `override fun extensions()` (or the
-    `listener`/`extension()` block, whichever the chosen Kotest version
-    documents).
-  - `@WebMvcTest(controllers = [SendMoneyController::class])` annotation
-    remains on the class.
-  - `@MockBean` is replaced by `@MockkBean` from `com.ninja-squad.springmockk`;
-    `import org.springframework.boot.test.mock.mockito.MockBean` is removed.
-  - The `eq(value)` helper is removed; the MockMvc assertion uses
-    `verify { sendMoneyUseCase.sendMoney(SendMoneyCommand(...)) }` directly.
-  - The HTTP assertion (`POST /accounts/send/41/42/500` returns 200) is
-    preserved.
-  - `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.in.web.SendMoneyControllerTest"` exits 0.
-  - `./gradlew test` (full suite) exits 0.
-- **Out of scope**: controller production code; ArchUnit; system test;
-  persistence test.
-
-### Sprint 04 — migrate `AccountPersistenceAdapterTest` (`@DataJpaTest`)
-
-- **Files in scope**:
-  - `src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapterTest.kt`
-- **User-visible goal**: Convert the JPA-slice test to a Kotest spec hosting
-  the existing `@DataJpaTest` + `@Import` + `@Sql` annotations through the
-  Spring extension. No mocks involved; this validates that Kotest +
-  `@DataJpaTest` + H2 + `@Sql` interact cleanly.
-- **Hard exit criteria**:
-  - Class extends `DescribeSpec` (preferred) or `FunSpec`.
-  - `@DataJpaTest`, `@Import(AccountPersistenceAdapter::class, AccountMapper::class)`,
-    and the per-method `@Sql("AccountPersistenceAdapterTest.sql")` annotation
-    are preserved. `@Sql` is allowed on the method even inside a spec block as
-    long as the Spring extension picks it up; if Kotest's Spring extension
-    cannot honor method-level `@Sql` inside a lambda, move the SQL load to a
-    `beforeTest` block that runs the same SQL (verify by reading the SQL
-    file).
-  - Kotest's `SpringExtension` is registered.
-  - `assertThat(...).hasSize(2)` and `.isEqualTo(Money.of(500L))` become
-    `shouldHaveSize(2)` and `shouldBe Money.of(500L)`.
-  - `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.AccountPersistenceAdapterTest"` exits 0; both
-    `loadsAccount` and `updatesActivities` pass and the H2 row count remains
-    `1` for the update path.
-  - `./gradlew test` (full suite) exits 0.
-- **Out of scope**: `AccountPersistenceAdapter` / `AccountMapper` /
-  `ActivityRepository` production code;
-  `src/test/resources/.../AccountPersistenceAdapterTest.sql` (do not edit).
-
-### Sprint 05 — migrate ArchUnit and Spring smoke tests
-
-- **Files in scope**:
-  - `src/test/kotlin/io/reflectoring/buckpal/DependencyRuleTests.kt`
-  - `src/test/kotlin/io/reflectoring/buckpal/BuckPalApplicationTests.kt`
-- **User-visible goal**: Rehost two thin tests under Kotest. `DependencyRuleTests`
-  becomes a `FunSpec` whose blocks invoke the existing `HexagonalArchitecture`
-  builder unchanged. `BuckPalApplicationTests` becomes a `FunSpec` /
-  `DescribeSpec` with one `test("context loads") {}` block, still annotated
-  `@SpringBootTest` and using the Kotest Spring extension.
-- **Hard exit criteria**:
-  - `DependencyRuleTests` extends a Kotest spec, has zero `@Test` / JUnit
-    imports, and runs both `validateRegistrationContextArchitecture` and
-    `testPackageDependencies` as separate leaf tests. ArchUnit imports
-    (`com.tngtech.archunit.*`) are **unchanged**.
-  - `BuckPalApplicationTests` extends a Kotest spec, retains `@SpringBootTest`,
-    drops `@ExtendWith(SpringExtension::class)` (Kotest's Spring extension
-    takes over), and exercises one empty context-load block.
-  - `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"`
-    and `./gradlew test --tests "io.reflectoring.buckpal.BuckPalApplicationTests"`
-    both exit 0.
-  - `./gradlew test` (full suite) exits 0.
-- **Out of scope**: any file under `src/test/kotlin/io/reflectoring/buckpal/archunit/**`
-  (those are infrastructure classes, not tests). The system test
-  (`SendMoneySystemTest`) is migrated in the next sprint.
-
-### Sprint 06 — migrate `SendMoneySystemTest` (full Spring Boot system test)
-
-- **Files in scope**:
-  - `src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt`
-- **User-visible goal**: Convert the end-to-end Spring Boot system test to a
-  Kotest spec (`DescribeSpec` or `FunSpec`) while keeping
-  `@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)` and the
-  `@Sql("SendMoneySystemTest.sql")` data load. Replace
-  `org.assertj.core.api.BDDAssertions.then` with Kotest's `shouldBe`.
-- **Hard exit criteria**:
-  - Class extends a Kotest spec and registers Kotest's `SpringExtension`.
-  - The `@SpringBootTest(... RANDOM_PORT)` annotation is preserved.
-  - `@Sql("SendMoneySystemTest.sql")` is preserved on the leaf test (same
-    `@Sql` fallback strategy as Sprint 04 if needed).
-  - The HTTP exchange via `TestRestTemplate` produces a 200 and balance deltas
-    of `-500` (source) / `+500` (target), asserted via Kotest matchers.
-  - No imports from `org.assertj.core.*` remain in this file.
-  - `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"`
-    exits 0; the test launches a random port and round-trips through the
-    controller.
-  - `./gradlew test` (full suite) exits 0.
-- **Out of scope**: `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql`;
-  any production code; any other test file.
-
-### Sprint 07 — strip obsolete test dependencies and final verification
-
-- **Files in scope**:
-  - `build.gradle`
-- **User-visible goal**: Now that every test class is on Kotest + MockK,
-  remove the now-unused legacy test dependencies and confirm the suite is
-  still green. Leaves the build script representing the final desired state.
-- **Hard exit criteria**:
-  - Remove `org.junit.jupiter:junit-jupiter-engine:5.0.1` and
-    `org.mockito:mockito-junit-jupiter:2.23.0` from `dependencies`.
-    (`junit-platform-launcher` stays because some tooling expects it.)
-  - Remove `org.jetbrains.kotlin:kotlin-test` and
-    `org.jetbrains.kotlin:kotlin-test-junit5`.
-  - `spring-boot-starter-test`, `archunit:0.16.0`, `h2`, and
-    `junit-platform-launcher:1.4.2` remain unchanged.
-  - `test { useJUnitPlatform() }` remains.
-  - Grep confirms no remaining imports of `org.junit.jupiter.api.*`,
-    `org.mockito.*`, `kotlin.test.*`, `org.junit.jupiter.api.extension.ExtendWith`,
-    or `org.springframework.test.context.junit.jupiter.SpringExtension`
-    inside `src/test/kotlin/**` (`ArchUnit` helper imports of
-    `com.tngtech.archunit.*` are unaffected; that package is fine).
-  - `./gradlew clean test` exits 0.
-  - `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"`
-    still boots Spring and serves
-    `POST /accounts/send/{sourceAccountId}/{targetAccountId}/{amount}`.
-- **Out of scope**: Kotlin / Spring Boot version bumps; conversion to
-  `build.gradle.kts`; any change to `src/test/**`.
+If sprint-00 review uncovers other candidates we missed, that sprint may add
+rows to its ADR table; later sprints adjust accordingly.
 
 ## Risk register
 
-1. **Spring + Kotest extension wiring** — `kotest-extensions-spring` activates
-   Spring's `TestContextManager` for Kotest specs; misconfiguring it (e.g.,
-   forgetting `override fun extensions()` / wrong artifact coordinates) silently
-   skips `@Autowired` injection. Mitigation: Sprint 03 is the first Spring
-   sprint precisely so the wiring is validated on the smallest Spring slice
-   (`@WebMvcTest`) before applying it to `@DataJpaTest` and `@SpringBootTest`.
-2. **`@Sql` resolution inside Kotest test lambdas** — JUnit's `@Sql` is
-   discovered on `Method` objects; Kotest leaf tests are lambdas, not
-   reflective methods. If `kotest-extensions-spring` does not honor
-   class- + method-level `@Sql` on lambda leaves, Sprints 04 and 06 must
-   fall back to executing the same SQL in a `beforeTest` block.
-3. **`@MockkBean` Spring Boot 2.4.x compatibility** — `springmockk` versions
-   are paired to Spring Boot lines. Sprint 00 must pick the springmockk
-   release that supports Spring Boot 2.4.3 (the 3.x line). If injection fails,
-   fall back to declaring the bean in a `@TestConfiguration` and using
-   `mockk<SendMoneyUseCase>()`.
-4. **MockK + Kotlin final classes** — Production classes like `Account` are
-   not `open`; MockK can mock final classes only with
-   `mockkClass(...)` or with the `mockk-agent` `MockK { ... }` global, but
-   `mockk<T>()` on a final class is supported out of the box from MockK 1.13
-   onward (uses `mockk-agent-jvm`). If a `MissingMockitoExtension` or
-   "cannot mock final" failure surfaces, Sprint 02 must add
-   `io.mockk:mockk-agent-jvm` (already a transitive of `mockk`) and / or
-   the `MockKAnnotations.init(this, relaxUnitFun = true)` pattern.
-5. **JUnit Platform engine collisions** — `kotest-runner-junit5` registers as
-   a JUnit Platform engine. Until Sprint 07 strips `junit-jupiter-engine`,
-   both engines run concurrently. This is intentional (allows partial
-   migration), but is the reason `./gradlew test` is the green-bar gate at
-   every sprint, not just the final one.
-6. **ArchUnit scans compiled classes, not files** — the existing
-   `DependencyRuleTests` uses `ClassFileImporter().importPackages(...)`,
-   which is source-language-agnostic. Hosting it in a Kotest spec does not
-   change package scanning, but Sprint 05 must keep the `archunit` artifact
-   on `testImplementation` to avoid an `import` failure.
-7. **`AccountId(...)!!` / nullable boundaries** — `SendMoneyServiceTest`
-   accesses `sourceAccount.id!!`. After moving to MockK, `every { account.id }
-   returns id` returns the non-null `AccountId` directly, so the `!!` is no
-   longer needed. Be careful not to over-relax the type of `Account.id` in
-   production code while migrating tests — production code stays untouched.
+- **JPA `@Query` HQL parameter binding.** `ActivityRepository` HQL strings
+  reference primitive-typed parameters (`:ownerAccountId` as `Long`,
+  `:since`/`:until` as `LocalDateTime`). Any new VO must unwrap to the
+  primitive at the call site (in `AccountPersistenceAdapter`). HQL is **not**
+  to be edited.
+- **`open class Account` for Mockito-style mocks.** `Account.id`, `withdraw`,
+  `deposit`, `calculateBalance` are `open` because `SendMoneyServiceTest`
+  mocks them. New VO parameters must not change the openness or the method
+  signatures' externally observable shape (parameter names used by Mockk
+  matchers can stay, since we use `any()` for VOs too).
+- **`SelfValidating<SendMoneyCommand>` + javax-validation.** `SendMoneyCommand`
+  uses `@field:NotNull`. A new VO field stays nullable-safe by Kotlin types;
+  do not add `@NotNull` to value-class fields without confirming Hibernate
+  Validator can traverse them.
+- **Kotest `shouldBe` equality on dates.** `ActivityWindowTest` and
+  `SendMoneySystemTest` compare timestamps with `shouldBe`. A `value class
+  ActivityTimestamp(val value: LocalDateTime)` is `equals`-by-component, so
+  test comparisons must compare *the same wrapper type* on both sides — the
+  Generator must update both production and test call sites in the same
+  sprint, not split across two sprints.
+- **`@JvmInline value class` and `data class` companions.** `value class` does
+  not auto-generate `copy()`; sprints that introduce one should not assume
+  `.copy(...)` is available. Plain `data class` is fine for multi-field VOs.
+- **Spring `@ConfigurationProperties` binders.** Do not migrate
+  `transferThreshold` to a custom VO without writing a Spring `Converter`;
+  sprint-00 records this as REJECT and out of scope.
+- **Silent `BigInteger → Long` narrowing in `AccountMapper.mapToJpaEntity`.**
+  Pre-existing; not introduced by this work. Noted so the Evaluator does not
+  flag it as a regression.
+
+---
+
+## Sprint 0 — Analysis and ADR (read-only)
+
+**User-visible goal.** Produce a written, reviewable decision record that
+nails down which VOs will be extracted (and which were considered and
+rejected), so later sprints execute against a fixed scope.
+
+**Files in scope (read-only).** No production code is modified. The Generator
+writes one analysis artifact:
+
+- `.claude/harness/workspace/handoffs/sprint-00-vo-candidates.md` — an ADR-style
+  table listing every candidate from the inventory above, marked
+  `ACCEPT` / `REJECT`, with a one-sentence rationale, the target type name
+  (`BaselineDate`, `ActivityTimestamp`, `BaselineBalanceFigures`, ...), and the
+  sprint number that will implement it.
+
+The Generator reads (only) these files to verify the inventory matches the
+current code:
+
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Account.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Activity.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindow.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Money.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/in/SendMoneyCommand.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/in/GetAccountBalanceQuery.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/LoadAccountPort.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/UpdateAccountStatePort.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/AccountLock.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceService.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/MoneyTransferProperties.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/BuckPalConfiguration.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/BuckPalConfigurationProperties.kt`
+
+**Hard exit criteria.**
+- The file `.claude/harness/workspace/handoffs/sprint-00-vo-candidates.md`
+  exists.
+- It contains a markdown table with at least these columns: `Candidate`,
+  `Current type`, `Decision (ACCEPT/REJECT)`, `Target VO type name`,
+  `Implementing sprint`, `Rationale`.
+- Every candidate in this spec's inventory (rows 1–7) appears as a row,
+  with the same ACCEPT/REJECT decisions called out here, or with an explicit
+  written justification if the Generator wishes to change a decision.
+- `git diff -- src/main/kotlin src/test/kotlin` is empty (no production or
+  test changes this sprint).
+- `./gradlew test` exits 0 (trivially, since nothing changed).
+
+**External contract verification (must appear in Evaluator notes).**
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt`
+  is empty.
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt`
+  is empty.
+
+**Out of scope.**
+- Any change to production source.
+- Any change to tests.
+- Any change to `build.gradle.kts`.
+
+---
+
+## Sprint 1 — `BaselineDate` value class (cutoff date for activity windows)
+
+**User-visible goal.** Replace the `LocalDateTime` parameter that means
+"baseline cutoff for the activity window" with a dedicated
+`BaselineDate` value class everywhere it flows: incoming application service
+boundaries, outgoing port (`LoadAccountPort`), and the persistence adapter.
+Unwrap to `LocalDateTime` only at the JPA repository boundary.
+
+**Files in scope.**
+- Create `src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt`.
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/LoadAccountPort.kt`
+  (parameter type only).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt`
+  (construct `BaselineDate` from `LocalDateTime.now().minusDays(10)`).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceService.kt`
+  (construct `BaselineDate.now()` or equivalent).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt`
+  (accept `BaselineDate`, pass `.value` to `ActivityRepository`).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyServiceTest.kt`
+  (mock setups and verifies must use `BaselineDate` matchers).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceServiceTest.kt`
+  (same).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapterTest.kt`
+  (call sites use `BaselineDate`).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` *only if*
+  it calls `loadAccountPort.loadAccount(_, LocalDateTime.now())` — wrap with
+  `BaselineDate(...)`.
+
+**Hard exit criteria.**
+- `BaselineDate.kt` exists, is a `@JvmInline value class` wrapping a single
+  `LocalDateTime` field named `value`, lives in package
+  `io.reflectoring.buckpal.account.domain`, has at minimum a companion
+  `now(): BaselineDate` factory.
+- `LoadAccountPort.loadAccount` signature reads
+  `fun loadAccount(accountId: Account.AccountId, baselineDate: BaselineDate): Account`.
+- `ActivityRepository`'s HQL `:since` / `:until` parameters and Java types
+  are unchanged (verify by diff: `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt`
+  is empty).
+- `./gradlew clean build check` exits 0.
+- `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"` exits 0
+  (the round-trip HTTP path is unaffected).
+
+**External contract verification.**
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt`
+  is empty (HTTP path variables unchanged).
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt`
+  is empty.
+
+**Out of scope.**
+- Activity occurrence timestamp (that's sprint-02).
+- Mapper baseline-balance pair (that's sprint-03).
+- Any HQL or schema change.
+
+---
+
+## Sprint 2 — `ActivityTimestamp` value class (when an Activity occurred)
+
+**User-visible goal.** Replace the `LocalDateTime timestamp` field on
+`Activity`, the return types of `ActivityWindow.getStartTimestamp()` /
+`getEndTimestamp()`, and the matching test data with a dedicated
+`ActivityTimestamp` value class — so the type system can no longer confuse
+"when an activity happened" with `BaselineDate` (from sprint-01) or any
+other clock value. Persistence and HTTP keep `LocalDateTime` at the edge;
+conversion happens in `AccountMapper`.
+
+**Files in scope.**
+- Create `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt`.
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/domain/Activity.kt`
+  (`timestamp: ActivityTimestamp`; both constructors updated).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindow.kt`
+  (`getStartTimestamp(): ActivityTimestamp`, `getEndTimestamp(): ActivityTimestamp`,
+  `minByOrNull`/`maxByOrNull` selector unchanged in semantics).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/domain/Account.kt`
+  (`Activity(... LocalDateTime.now() ...)` callers become
+  `Activity(... ActivityTimestamp.now() ...)`).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt`
+  (convert `ActivityJpaEntity.timestamp: LocalDateTime` ↔
+  `Activity.timestamp: ActivityTimestamp` at the boundary; the JPA column
+  type stays `LocalDateTime`).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindowTest.kt`
+  (assertions use `ActivityTimestamp`).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/account/domain/ActivityTest.kt`
+  if it constructs `Activity` with a raw `LocalDateTime`.
+- Edit `src/test/kotlin/io/reflectoring/buckpal/common/ActivityTestData.kt`
+  (`withTimestamp(...)` overloads accept `ActivityTimestamp`; convenience
+  overload accepting `LocalDateTime` is *optional* for test readability).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapperTest.kt`
+  if it constructs/asserts on activity timestamps.
+
+**Hard exit criteria.**
+- `ActivityTimestamp.kt` is a `@JvmInline value class` wrapping a single
+  `LocalDateTime` field named `value`, with at minimum a companion
+  `now(): ActivityTimestamp` factory.
+- `Activity.timestamp` is typed `ActivityTimestamp`; `ActivityJpaEntity.timestamp`
+  stays typed `LocalDateTime?` (JPA-mapped column intact).
+- `ActivityWindow.getStartTimestamp()` and `getEndTimestamp()` both return
+  `ActivityTimestamp`.
+- `./gradlew clean build check` exits 0.
+- `./gradlew test --tests "io.reflectoring.buckpal.account.domain.*"` exits 0.
+
+**External contract verification.**
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt`
+  is empty.
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt`
+  is empty (only `AccountMapper.kt` may change in the persistence adapter
+  package besides files explicitly listed above).
+- DB script `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql`
+  is unchanged.
+
+**Out of scope.**
+- `BaselineDate` (already done in sprint-01).
+- The baseline-balance pair (sprint-03).
+- Renaming `Activity.timestamp` to anything else; only its type changes.
+
+---
+
+## Sprint 3 — `BaselineBalanceFigures` data class (deposit/withdrawal pair)
+
+**User-visible goal.** Replace the positional `withdrawalBalance: Long,
+depositBalance: Long` parameter pair on `AccountMapper.mapToDomainEntity` with
+a single `BaselineBalanceFigures` data class carrying `Money` values, so the
+mapper can no longer be miscalled with swapped arguments. Build the figures
+in `AccountPersistenceAdapter` where the JPA aggregates land.
+
+**Files in scope.**
+- Create `src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineBalanceFigures.kt`
+  (data class with `deposit: Money`, `withdrawal: Money`; helper
+  `fun toBaselineBalance(): Money = deposit - withdrawal`).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt`
+  (signature becomes
+  `fun mapToDomainEntity(account: AccountJpaEntity, activities: List<ActivityJpaEntity>, figures: BaselineBalanceFigures): Account`;
+  internals use `figures.toBaselineBalance()`).
+- Edit `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt`
+  (build `BaselineBalanceFigures(deposit = Money.of(depositBalance), withdrawal = Money.of(withdrawalBalance))`
+  before calling the mapper; raw `Long?` aggregates from
+  `ActivityRepository.getDepositBalanceUntil` / `getWithdrawalBalanceUntil`
+  are still defaulted to `0L` exactly as today).
+- Edit `src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapperTest.kt`
+  (call sites updated to pass `BaselineBalanceFigures`).
+
+**Hard exit criteria.**
+- `BaselineBalanceFigures.kt` is a `data class` (NOT a `value class`, because
+  it has two fields), located in `io.reflectoring.buckpal.account.domain`,
+  with named parameters `deposit: Money, withdrawal: Money`.
+- `AccountMapper.mapToDomainEntity` has exactly 3 parameters, and the
+  baseline-related parameter is typed `BaselineBalanceFigures`.
+- `ActivityRepository` interface is unchanged (its `Long?` returns are still
+  consumed by `AccountPersistenceAdapter`, not by the mapper).
+- `./gradlew clean build check` exits 0.
+- `./gradlew test --tests "io.reflectoring.buckpal.account.adapter.out.persistence.*"`
+  exits 0.
+
+**External contract verification.**
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt`
+  is empty.
+- `git diff -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt`
+  is empty.
+- `SendMoneySystemTest` round-trip still passes.
+
+**Out of scope.**
+- Reworking `ActivityRepository`'s aggregate queries.
+- Touching `AccountJpaEntity` (this is an empty marker entity by design).
+- Changing how `Account.baselineBalance` is stored on the domain entity.
+
+---
+
+## Sprint 4 — Final verification and VO convention notes
+
+**User-visible goal.** Prove the system is fully green end-to-end with the
+three new VOs in place, document the convention so future contributors keep
+the boundary discipline, and leave nothing half-converted.
+
+**Files in scope.**
+- Verification only (no new production source). The Generator may make
+  *micro*-edits to call sites it missed (e.g. an overlooked Kotest builder
+  call), but no new VOs are introduced this sprint.
+- Write `.claude/harness/workspace/handoffs/sprint-04-vo-convention.md`
+  reproducing:
+  - Where VOs live (`account/domain/`).
+  - Which primitive leaks remain INTENTIONAL (HTTP path variables, Spring
+    `@ConfigurationProperties`, JPA columns).
+  - The accepted-vs-rejected table from sprint-00, copied for posterity.
+  (Do not edit `README.md` or any production doc.)
+
+**Hard exit criteria.**
+- `./gradlew clean build check` exits 0 — full build, all tests.
+- `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"`
+  exits 0 (ArchUnit hexagonal check still passes; no new
+  domain → application/adapter dependency was introduced).
+- `./gradlew test --tests "io.reflectoring.buckpal.BuckPalApplicationTests"`
+  exits 0 (Spring context still boots).
+- `./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"`
+  exits 0 (end-to-end HTTP transfer still works).
+- A grep proves no production file outside `account/domain/` constructs
+  `BaselineDate(...)`, `ActivityTimestamp(...)`, or `BaselineBalanceFigures(...)`
+  from raw primitives in a way that violates layer boundaries:
+  ```
+  rg --type kt -n 'BaselineDate\(|ActivityTimestamp\(|BaselineBalanceFigures\(' src/main/kotlin
+  ```
+  All hits are in `account/domain/`, `account/application/**`, or
+  `account/adapter/**` (i.e. inside the bounded context).
+- A grep proves no leftover raw `LocalDateTime` parameter in the
+  application/port surface:
+  ```
+  rg --type kt -n 'LocalDateTime' src/main/kotlin/io/reflectoring/buckpal/account/application/port
+  ```
+  returns no matches (after sprint-01).
+- The handoff file
+  `.claude/harness/workspace/handoffs/sprint-04-vo-convention.md` exists.
+
+**External contract verification.**
+- `SendMoneySystemTest` still passes, proving
+  `POST /accounts/send/{Long}/{Long}/{Long}` is byte-identical.
+- Diff of `AccountJpaEntity.kt`, `ActivityJpaEntity.kt`, `ActivityRepository.kt`,
+  and the SQL fixtures across the whole branch shows zero changes from the
+  pre-sprint-00 baseline:
+  ```
+  git diff <baseline>..HEAD -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt src/test/resources
+  ```
+  must be empty.
+
+**Out of scope.**
+- Introducing additional VOs not on the sprint-00 ACCEPT list.
+- Reworking the `Money` API.
+- Editing `build.gradle.kts`.
+- Renaming any existing class or package.
+- Editing `README.md` or other production documentation files.
+
+---
 
 ## Sprint Index
 
-- sprint-00: build config — add Kotest + MockK + springmockk alongside existing test stack
-- sprint-01: account/domain — migrate AccountTest and ActivityWindowTest to Kotest
-- sprint-02: account/application/service — migrate SendMoneyServiceTest to Kotest + MockK
-- sprint-03: account/adapter/in/web — migrate SendMoneyControllerTest to Kotest + MockkBean
-- sprint-04: account/adapter/out/persistence — migrate AccountPersistenceAdapterTest to Kotest + DataJpaTest
-- sprint-05: archunit + smoke — migrate DependencyRuleTests and BuckPalApplicationTests to Kotest
-- sprint-06: system test — migrate SendMoneySystemTest to Kotest + SpringBootTest
-- sprint-07: cleanup — remove junit-jupiter-engine / mockito-junit-jupiter / kotlin-test from build.gradle
+- sprint-00: analysis — read-only VO candidate inventory + ADR decision table
+- sprint-01: BaselineDate — value class for the activity-window cutoff date
+- sprint-02: ActivityTimestamp — value class for when an Activity occurred
+- sprint-03: BaselineBalanceFigures — data class for the deposit/withdrawal pair in AccountMapper
+- sprint-04: verification — full build, ArchUnit, system test, and VO convention notes

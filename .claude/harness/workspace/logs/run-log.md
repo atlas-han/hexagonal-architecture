@@ -1,15 +1,34 @@
 # Harness Run Log
 
-2026-05-17T13:27:24Z | run-start | orchestrator | new migration: kotest+mockk test conversion; worktree=harness+kotlin-migration; previous run archived to workspace/archive/2026-05-17-java-to-kotlin
-2026-05-17T13:31:32Z | planner | done | product-spec.md written, 8 sprints (sprint-00..sprint-07)
-2026-05-17T13:45:06Z | sprint-00 | commit | 2199272 — build config: add Kotest+MockK+springmockk deps
-2026-05-17T14:07:20Z | sprint-01 | orchestrator-decision | contract negotiation stuck at round 3 (Generator failed to actually rewrite file). Spring Boot 2.4.3 BOM pins kotlinx-coroutines-* to 1.4.2, but Kotest 5.5.5 runtime needs TestDispatcher (1.6.0+). Decision: insert hot-fix commit between sprint-00 and sprint-01 adding `testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-{core,test}:1.6.4'`; restore sprint-01-contract.md to its round-1 AGREED state and re-run Generator Phase 2/3/4 against the fixed BOM.
-2026-05-17T14:12:00Z | hot-fix | commit | 753c1dc — pin kotlinx-coroutines (core+test, jvm variants) to 1.6.4 for Kotest dispatcher
-2026-05-17T14:21:23Z | sprint-01 | commit | db46a28 — Kotest BehaviorSpec for account/domain (AccountTest, ActivityWindowTest)
-2026-05-17T14:40:12Z | sprint-02 | commit | d81ebb5 — SendMoneyServiceTest to Kotest + MockK
-2026-05-17T14:54:09Z | sprint-03 | commit | 426e129 — SendMoneyControllerTest to Kotest DescribeSpec + @MockkBean + SpringExtension
-2026-05-17T17:02:51Z | sprint-04 | commit | 438fdde — AccountPersistenceAdapterTest to Kotest DescribeSpec + @DataJpaTest (in-leaf ScriptUtils SQL load via DataSourceUtils)
-2026-05-17T20:12:38Z | sprint-05 | commit | 6305169 — DependencyRuleTests (FunSpec) + BuckPalApplicationTests (DescribeSpec). Review authored by orchestrator after two consecutive Evaluator sub-agent idle/socket timeouts; mandatory commands re-run directly with passing results.
-2026-05-17T20:27:42Z | sprint-06 | commit | 2f9062a — SendMoneySystemTest to Kotest DescribeSpec + @SpringBootTest (RANDOM_PORT), in-leaf SQL load
-2026-05-18T14:40:12Z | sprint-07 | commit | 4b19d2b — cleanup: remove junit-jupiter-engine / mockito-junit-jupiter / kotlin-test{,-junit5} from build.gradle
-2026-05-18T14:44:02Z | final | verify | ./gradlew clean build check — BUILD SUCCESSFUL in 2m 57s. Aggregate 16 leaves across 8 suites, 0 failures.
+2026-05-27T00:00:00Z | run-start | orchestrator | new migration: domain value-object extraction; branch=claude/harness-domain-value-objects-5PRde; previous run archived to workspace/archive/2026-05-27-kotest-mockk
+2026-05-27T01:49:33Z | planner | done | product-spec.md written, 5 sprints (sprint-00..sprint-04)
+- 2026-05-27T02:22:41Z | contract | sprint-00-contract.md
+- 2026-05-27T02:23:19Z | contract | sprint-00-contract.md | STATUS=AGREED
+- 2026-05-27T02:25:43Z | handoff | sprint-00-vo-candidates.md
+2026-05-27T02:36:30Z | hot-fix | orchestrator | env: JDK 21 in container vs Gradle 7.6.4 launcher (max JDK 19). Resolution: apt install openjdk-17-jdk-headless; add gradle.properties (org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64) and java.toolchain { 17 } in build.gradle. ./gradlew test now BUILD SUCCESSFUL in 1m 33s.
+- 2026-05-27T02:52:47Z | handoff | sprint-00-handoff.md
+2026-05-27T03:05:00Z | sprint-00 | review | STATUS=PASS; GITLEAKS=SKIPPED (warning: no gitleaks binary present); SOLID=NO
+- 2026-05-27T03:42:20Z | contract | sprint-01-contract.md
+- 2026-05-27T03:43:20Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:43:23Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:43:26Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:43:41Z | contract | sprint-01-contract.md | STATUS=NEEDS_REVISION
+- 2026-05-27T03:51:54Z | contract | sprint-01-contract.md
+- 2026-05-27T05:42:03Z | contract | sprint-01-contract.md | STATUS=AGREED
+- 2026-05-27T08:28:25Z | handoff | sprint-01-handoff.md
+- 2026-05-27T08:38:15Z | review | sprint-01-review.md | STATUS=PASS
+2026-05-27T08:45:00Z | sprint-01 | review | STATUS=PASS; GITLEAKS=SKIPPED; SOLID=NO; ArchUnit 2/2 green; clean build+check BUILD SUCCESSFUL in 28s
+- 2026-05-27T12:38:50Z | contract | sprint-02-contract.md | STATUS=AGREED
+- 2026-05-27T12:39:08Z | contract | sprint-02-contract.md
+- 2026-05-27T12:39:52Z | contract | sprint-02-contract.md | STATUS=AGREED
+- 2026-05-27T12:49:39Z | handoff | sprint-02-handoff.md
+- 2026-05-27T13:37:38Z | review | sprint-02-review.md | STATUS=PASS
+- 2026-05-27T13:39:00Z | contract | sprint-03-contract.md
+- 2026-05-27T13:39:51Z | contract | sprint-03-contract.md | STATUS=AGREED
+- 2026-05-27T13:46:40Z | handoff | sprint-03-handoff.md
+- 2026-05-27T13:56:21Z | review | sprint-03-review.md | STATUS=PASS
+- 2026-05-27T13:57:36Z | contract | sprint-04-contract.md
+- 2026-05-27T13:58:57Z | contract | sprint-04-contract.md | STATUS=AGREED
+- 2026-05-27T14:01:21Z | handoff | sprint-04-vo-convention.md
+- 2026-05-27T14:06:39Z | handoff | sprint-04-handoff.md
+- 2026-05-27T14:15:46Z | review | sprint-04-review.md | STATUS=PASS

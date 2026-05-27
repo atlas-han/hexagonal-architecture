@@ -1,203 +1,301 @@
-# Sprint 02 Handoff
+# Sprint 02 Handoff — `ActivityTimestamp` value class
 
-## What changed
+## Summary
 
-- **Modified**: `src/test/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyServiceTest.kt`
-  - Class redeclared as `class SendMoneyServiceTest : BehaviorSpec({ ... })`.
-  - Both `@Test` methods rewritten as two `BehaviorSpec` leaves under
-    `given { \`when\` { then { ... } } }` triples.
-  - All Mockito (`Mockito.mock`, `BDDMockito.given/then`, `Mockito.times`,
-    `Mockito.eq`, `Mockito.any`, `ArgumentCaptor`) replaced with MockK
-    (`mockk<T>()`, `every { } returns`, `verify { }`, `verify(exactly = N) { }`,
-    `mutableListOf<Account>()` + `capture(list)`).
-  - Hand-rolled helpers deleted: the file-level `accountSentinel`,
-    `private fun capture(captor: ArgumentCaptor<Account>)`, and
-    `private fun <T> eq(value: T)` are all gone.
-  - Mock-creation modes: `mockk<LoadAccountPort>()` and `mockk<Account>()`
-    stay strict; `mockk<AccountLock>(relaxUnitFun = true)` and
-    `mockk<UpdateAccountStatePort>(relaxUnitFun = true)` relax only their
-    `Unit`-returning methods to avoid `just Runs` boilerplate.
-  - AssertJ (`assertThat(...).isTrue()` / `isFalse()` / `.contains(x)` loop)
-    replaced with Kotest matchers (`success shouldBe true/false`,
-    `updatedAccountIds shouldContainAll accountIds.toList()`).
-  - `!!` eliminated: `sourceAccountId`/`targetAccountId` are declared as
-    local `val`s of type `AccountId` *before* the mock is created, then
-    used for both the `every`/`verify` sites and for building
-    `SendMoneyCommand`.
-  - `givenAnAccountWithId(...)` / `givenWithdrawalWillFail(...)` /
-    `givenWithdrawalWillSucceed(...)` / `givenDepositWillSucceed(...)` /
-    `thenAccountsHaveBeenUpdated(...)` / `moneyTransferProperties()` are
-    declared as **local `fun`s inside the `BehaviorSpec` lambda** rather
-    than instance methods, which removes the need for any class-level
-    state.
+Introduced `ActivityTimestamp`, a `@JvmInline value class` wrapping
+`LocalDateTime`, to model "when an Activity occurred" — distinct at the type
+level from `BaselineDate` (sprint-01) and any other clock value. Retyped
+`Activity.timestamp`, both `Activity` constructors,
+`ActivityWindow.getStartTimestamp()` / `getEndTimestamp()`, and the two
+`Activity(...)` call sites in `Account.kt`. The `AccountMapper` boundary
+converts `ActivityJpaEntity.timestamp: LocalDateTime?` ↔
+`Activity.timestamp: ActivityTimestamp` so the JPA column type (and its HQL
+parameter shapes) stays primitive. All Kotest specs that touch activity
+timestamps were updated to use `ActivityTimestamp`.
 
-- **No other source file modified.** No production code touched, no other
-  test file touched, `build.gradle` untouched, fixtures untouched, ArchUnit
-  files untouched, Sprint 01 files untouched.
+## Files changed
 
-## Contract checklist
+Production source:
 
-### Behavioral correctness
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt` —
+  NEW. `@JvmInline value class ActivityTimestamp(val value: LocalDateTime)`
+  with `companion object { fun now(): ActivityTimestamp }`.
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Activity.kt` —
+  `timestamp` retyped to `ActivityTimestamp` on both primary and secondary
+  constructors / properties. `java.time.LocalDateTime` import removed (no
+  longer referenced in this file).
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindow.kt` —
+  `getStartTimestamp()` and `getEndTimestamp()` now return `ActivityTimestamp`.
+  `minByOrNull` / `maxByOrNull` selectors use `it.timestamp.value` to compare
+  the unwrapped `LocalDateTime` (its natural order is reused) and the
+  resulting `Activity`'s `.timestamp` is already `ActivityTimestamp`.
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Account.kt` —
+  `Activity(... LocalDateTime.now() ...)` call sites in `withdraw` and
+  `deposit` now read `Activity(... ActivityTimestamp.now() ...)`. No
+  `LocalDateTime` import left here.
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt` —
+  `mapToActivityWindow` wraps the (non-null-asserted) `LocalDateTime` JPA
+  field as `ActivityTimestamp(timestamp)`; `mapToJpaEntity` unwraps via
+  `activity.timestamp.value`. The JPA column type and the existing
+  `requireNotNull(activity.timestamp)` null-handling pattern are preserved.
 
-- [x] `./gradlew test --tests "io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest"` → `BUILD SUCCESSFUL`.
-- [x] `./gradlew test` (full suite) → `BUILD SUCCESSFUL`; aggregate leaf-test count
-      is **16** (1 + 2 + 2 + 4 + 3 + 1 + 2 + 1 across all 8 TEST-*.xml
-      reports), unchanged from the Sprint 01 baseline.
-- [x] `build/test-results/test/TEST-io.reflectoring.buckpal.account.application.service.SendMoneyServiceTest.xml`
-      reports `tests="2" failures="0" errors="0" skipped="0"`.
+Tests:
 
-### Architectural integrity
+- `src/test/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindowTest.kt` —
+  `startDate` / `inBetweenDate` / `endDate` are now `() -> ActivityTimestamp`,
+  built via `ActivityTimestamp(LocalDateTime.of(...))`. `shouldBe` comparisons
+  compare `ActivityTimestamp` on both sides.
+- `src/test/kotlin/io/reflectoring/buckpal/account/domain/ActivityTest.kt` —
+  the `timestamp` test fixture is now `ActivityTimestamp(LocalDateTime.of(...))`.
+- `src/test/kotlin/io/reflectoring/buckpal/common/ActivityTestData.kt` —
+  `defaultActivity()`'s `timestamp` parameter is `ActivityTimestamp.now()`,
+  builder field is `ActivityTimestamp`. Two `withTimestamp` overloads:
+  `withTimestamp(ActivityTimestamp)` (canonical) and the convenience
+  `withTimestamp(LocalDateTime)` that wraps the input (kept for readability
+  in call sites that already had a `LocalDateTime` in scope).
+- `src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapperTest.kt` —
+  the `mapToActivityWindow` assertions use `ActivityTimestamp(ts1)` /
+  `ActivityTimestamp(ts2)`; the two `mapToJpaEntity` round-trip cases
+  construct `Activity(... ActivityTimestamp(ts) ...)` while still asserting
+  `jpa.timestamp shouldBe ts` (the JPA column stays `LocalDateTime`).
 
-- [x] `./gradlew check` → `BUILD SUCCESSFUL`.
-- [x] `./gradlew test --tests "io.reflectoring.buckpal.DependencyRuleTests"` → `BUILD SUCCESSFUL` (ArchUnit XML reports `tests="2"`).
+Untouched (per contract "Unchanged" list): `ActivityJpaEntity.kt`,
+`ActivityRepository.kt`, `SendMoneyController.kt`,
+`SendMoneySystemTest.sql`, `BaselineDate.kt`, `LoadAccountPort.kt`,
+`AccountPersistenceAdapter.kt`, `build.gradle`, `gradle.properties`.
 
-### Code quality — Mockito and JUnit residue is gone
+## Self-check results
 
-- [x] `grep -nE "^import org\.mockito" SendMoneyServiceTest.kt` → no matches.
-- [x] `grep -n "Mockito\." SendMoneyServiceTest.kt` → no matches.
-- [x] `grep -nE "^import org\.assertj\.core" SendMoneyServiceTest.kt` → no matches.
-- [x] `grep -nE "^import org\.junit\.jupiter" SendMoneyServiceTest.kt` → no matches.
-- [x] `grep -n "@Test" SendMoneyServiceTest.kt` → no matches.
-- [x] `grep -nE "(ArgumentCaptor|accountSentinel|BDDMockito)" SendMoneyServiceTest.kt` → no matches.
+All 11 acceptance checks from `sprint-02-contract.md` were executed.
 
-### Code quality — MockK and Kotest are present
+### Check 1 — `ActivityTimestamp.kt` exists
 
-- [x] `grep -nE "^class SendMoneyServiceTest\s*:\s*BehaviorSpec" SendMoneyServiceTest.kt` → 1 match on line 17.
-- [x] `grep -nE "^import io\.kotest\.core\.spec\.style\.BehaviorSpec" SendMoneyServiceTest.kt` → 1 match on line 3.
-- [x] `grep -nE "^import io\.kotest\.matchers\.shouldBe" SendMoneyServiceTest.kt` → 1 match on line 5.
-- [x] `grep -nE "^import io\.mockk\.(every|mockk|verify)" SendMoneyServiceTest.kt` → 3 matches on lines 6–8 (`every`, `mockk`, `verify`).
+```
+$ test -f src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt
+$ echo $?
+0
+```
+PASS.
 
-### Idiomatic Kotlin — no banned patterns
+### Check 2 — `@JvmInline value class` wrapping `LocalDateTime`
 
-- [x] `grep -nE "(\blateinit\b|!!)" SendMoneyServiceTest.kt` → no matches.
-- [x] `grep -nE "\.shouldBe\(" SendMoneyServiceTest.kt` → no matches.
-- [x] `grep -nE "\.verify\(" SendMoneyServiceTest.kt` → no matches.
+```
+$ grep -Eq '@JvmInline' src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt \
+    && grep -Eq 'value[[:space:]]+class[[:space:]]+ActivityTimestamp' src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt \
+    && grep -Eq 'val[[:space:]]+value[[:space:]]*:[[:space:]]*LocalDateTime' src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt
+$ echo $?
+0
+```
+PASS.
 
-### Scope — only one file changed
+### Check 2b — `companion object` + `fun now(): ActivityTimestamp`
 
-- [x] `git diff --name-only HEAD -- src/` → exactly
-      `src/test/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyServiceTest.kt`.
-- [x] `git diff --name-only HEAD -- src/main/` → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/` → empty.
-- [x] `git diff --name-only HEAD -- build.gradle` → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/account/domain/` → empty.
-- [x] `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/archunit/` → empty.
+```
+$ grep -q 'companion[[:space:]]*object' src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt \
+    && grep -Eq 'fun[[:space:]]+now\s*\(\s*\)[[:space:]]*:[[:space:]]*ActivityTimestamp' src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt
+$ echo $?
+0
+```
+PASS.
 
-## Idiomatic Kotlin choices worth flagging
+### Check 3 — `Activity.timestamp: ActivityTimestamp`
 
-- **`BehaviorSpec` lambda style + local `fun`s.** The class body is a
-  single `BehaviorSpec({ ... })` constructor argument. All test helpers
-  (`givenAnAccountWithId`, `givenWithdrawalWillFail`,
-  `givenWithdrawalWillSucceed`, `givenDepositWillSucceed`,
-  `thenAccountsHaveBeenUpdated`, `moneyTransferProperties`) live as
-  **local functions inside the lambda** rather than as instance members.
-  This works because Kotest re-runs the spec lambda once per leaf, so
-  every leaf gets a fresh closure with fresh mocks — no `init { }`, no
-  `@BeforeEach`, no `lateinit var`, no `clearMocks()`.
+```
+$ grep -Eq 'timestamp[[:space:]]*:[[:space:]]*ActivityTimestamp' \
+    src/main/kotlin/io/reflectoring/buckpal/account/domain/Activity.kt
+$ echo $?
+0
+```
+PASS. (Both primary and secondary constructors carry
+`timestamp: ActivityTimestamp` — verified by reading the file.)
 
-- **Mocks created inside each leaf, not at the spec scope.** The
-  `loadAccountPort`, `accountLock`, `updateAccountStatePort`, and
-  `sendMoneyService` instances are declared inside each
-  `then { ... }` block (after the local-fun declarations earlier in the
-  lambda). This makes the per-leaf isolation explicit and prevents any
-  reader from assuming shared state. The helper functions take the mocks
-  as parameters rather than closing over them.
+### Check 4 — `ActivityWindow` returns `ActivityTimestamp`
 
-- **`relaxUnitFun = true` for the two `Unit`-only collaborators.**
-  `AccountLock.lockAccount/releaseAccount` and
-  `UpdateAccountStatePort.updateActivities` all return `Unit`. Marking
-  those two mocks with `relaxUnitFun = true` lets us call them without
-  stubbing each one as `every { ... } just Runs`, while keeping the rest
-  of the surface (`loadAccount`, `withdraw`, `deposit`, `id`) strictly
-  unstubbed-throws. Strict mode on `Account` and `LoadAccountPort` matches
-  Mockito's previous behavior — any unexpected interaction still fails
-  the test.
+```
+$ grep -E 'fun (getStartTimestamp|getEndTimestamp)\s*\([^)]*\)\s*:\s*ActivityTimestamp' \
+    src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindow.kt
+    fun getStartTimestamp(): ActivityTimestamp =
+    fun getEndTimestamp(): ActivityTimestamp =
+$ echo $?
+0
+```
+PASS (two matching lines, as required).
 
-- **`mutableListOf<Account>()` + `capture(list)` for the multi-capture
-  case, not `slot<Account>()`.** The `updateActivities` call fires twice
-  in the success scenario; `slot<T>()` only retains the *last* captured
-  value, which would silently lose the source-account assertion. The
-  list-form capture preserves both invocations, and
-  `updatedAccountIds shouldContainAll accountIds.toList()` is the
-  order-insensitive Kotest analog of the previous AssertJ
-  `for (accountId in accountIds) assertThat(updatedAccountIds).contains(accountId)`
-  loop.
+### Check 5 — no raw `LocalDateTime.now()` in `account/domain/`
 
-- **`success shouldBe false` / `shouldBe true` instead of
-  `success.shouldBeFalse()` / `shouldBeTrue()`.** The contract's quality
-  checks explicitly require `actual shouldBe expected` infix form
-  (`grep -nE "\.shouldBe\(" → no matches`). This keeps the assertion
-  style symmetrical for the two `@Test`-replacement leaves and matches
-  Sprint 01's `balance shouldBe Money.of(1555L)` convention.
+```
+$ grep -RnE 'LocalDateTime\.now\s*\(\s*\)' \
+    src/main/kotlin/io/reflectoring/buckpal/account/domain/
+src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt:11:        fun now(): BaselineDate = BaselineDate(LocalDateTime.now())
+src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt:16:        fun now(): ActivityTimestamp = ActivityTimestamp(LocalDateTime.now())
+$ echo $?
+0
+```
+PARTIAL — see *Notes for Evaluator §1*. Two matches remain, both *inside*
+the VO `companion object { fun now(): ... }` factories themselves. One is in
+`BaselineDate.kt` (sprint-01, listed under the contract's "Unchanged" files
+so it could not be touched this sprint) and one is in the brand-new
+`ActivityTimestamp.kt` (the factory shape itself is required by the
+contract's Deliverable §1). Substantively, every *caller* of
+`LocalDateTime.now()` in the domain folder is gone — `Account.kt`'s two
+`Activity(... LocalDateTime.now() ...)` call sites both became
+`ActivityTimestamp.now()`. The intent of the check ("the cutoff factory
+lives on the VOs") is fully met; the literal `exit 1` reading appears to be
+a contract inconsistency. Flagged for Evaluator triage rather than silently
+mutated.
 
-- **Back-ticked `` `when`("...") ``.** Kotest's `BehaviorSpec` `when`
-  builder collides with Kotlin's reserved keyword. Same convention as
-  Sprint 01.
+### Check 6 — `ActivityJpaEntity.timestamp` stays `LocalDateTime?`
 
-## Anything the Evaluator should pay extra attention to
+```
+$ grep -Eq 'var[[:space:]]+timestamp[[:space:]]*:[[:space:]]*LocalDateTime\?' \
+    src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt
+$ echo $?
+0
+```
+PASS.
 
-- **Mocking final-`Account` requires no extra setup.** Production
-  `Account` is declared `open class Account` (line 11 of `Account.kt`)
-  with `open val id` / `open fun withdraw` / `open fun deposit` (lines
-  14, 31, 57). MockK can mock the class with a plain `mockk<Account>()`;
-  no `mockk-agent-jvm` global, no `MockKAnnotations.init`. This matches
-  the spec's risk-register #4 expectation.
+### Check 7 — external-contract files unchanged
 
-- **Per-leaf mock isolation is automatic.** Kotest's default
-  `IsolationMode` for `BehaviorSpec` re-runs the lambda per leaf, so the
-  two leaves are run with two independent mock graphs. No `clearMocks`
-  block was added preemptively; if a future change to the Kotest version
-  alters the lifecycle, the fallback is to add `beforeTest { clearAllMocks() }`,
-  but that is out of scope for Sprint 02.
+```
+$ git diff --quiet -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt ; echo $?
+0
+$ git diff --quiet -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt ; echo $?
+0
+$ git diff --quiet -- src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt ; echo $?
+0
+$ git diff --quiet -- src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql ; echo $?
+0
+```
+PASS for all four. Working-tree diff is empty for every contract-frozen file.
 
-- **Argument-equality on `Money` and `AccountId` is value-based.** Both
-  production types are Kotlin `data class`es, so `Money.of(500L)` /
-  `AccountId(41L)` instances compare equal regardless of identity. The
-  `verify { mock.foo(Money.of(500L)) }` calls therefore match the
-  production-side invocation without any explicit matcher. No `eq(...)`
-  wrapper exists or is needed.
+### Check 8 — domain test suite passes
 
-- **The two scenarios preserve the exact same call-count assertions as
-  before.** In the failure leaf: `lockAccount(source)` and
-  `releaseAccount(source)` are verified (at least once) and
-  `lockAccount(target)` is verified `exactly = 0`. In the success leaf:
-  `lockAccount/releaseAccount` for both source and target,
-  `withdraw(money, target)` on the source mock,
-  `deposit(money, source)` on the target mock, and
-  `updateActivities(...)` `exactly = 2` (once per account, captured into
-  a `mutableListOf<Account>()` and asserted as containing both ids).
-  These are all *unordered* `verify { }` calls — no `verifyOrder` or
-  `verifySequence` introduced, matching the original Mockito flow which
-  also did not assert ordering.
+```
+$ ./gradlew test --tests "io.reflectoring.buckpal.account.domain.*"
+> Task :compileTestKotlin UP-TO-DATE
+> Task :compileTestJava NO-SOURCE
+> Task :processTestResources UP-TO-DATE
+> Task :testClasses UP-TO-DATE
+> Task :test
+> Task :jacocoTestReport
+BUILD SUCCESSFUL in 9s
+6 actionable tasks: 2 executed, 4 up-to-date
+$ echo $?
+0
+```
+PASS.
 
-- **`./gradlew test` aggregate leaf count is still 16.** Per-file counts
-  from the XML reports: `BuckPalApplicationTests`=1,
-  `DependencyRuleTests`=2, `SendMoneySystemTest`=1,
-  `SendMoneyControllerTest`=1, `AccountPersistenceAdapterTest`=2,
-  `SendMoneyServiceTest`=2, `AccountTest`=4, `ActivityWindowTest`=3.
-  Sum = 16, identical to the Sprint 01 baseline (`SendMoneyServiceTest`
-  had 2 leaves before and has 2 leaves after).
+### Check 9 — `./gradlew clean build check`
 
-## TODOs deferred to later sprints
+```
+$ ./gradlew clean build check
+> Task :clean
+> Task :processResources
+> Task :processTestResources
+> Task :compileKotlin
+> Task :compileJava NO-SOURCE
+> Task :classes
+> Task :bootJarMainClassName
+> Task :bootJar
+> Task :inspectClassesForKotlinIC
+> Task :jar SKIPPED
+> Task :assemble
+> Task :compileTestKotlin
+> Task :compileTestJava NO-SOURCE
+> Task :testClasses
+> Task :test
+> Task :jacocoTestReport
+> Task :check
+> Task :build
+BUILD SUCCESSFUL in 1m 17s
+10 actionable tasks: 10 executed
+$ echo $?
+0
+```
+PASS. ArchUnit `DependencyRuleTests` is part of `:test` and was green.
 
-- `SendMoneyControllerTest` still uses `@MockBean` + `@WebMvcTest` on
-  JUnit 5; migrate in **Sprint 03**.
-- `AccountPersistenceAdapterTest` still uses JUnit 5 + `@DataJpaTest`;
-  migrate in **Sprint 04**.
-- `DependencyRuleTests` and `BuckPalApplicationTests` still use JUnit 5;
-  migrate in **Sprint 05**.
-- `SendMoneySystemTest` still uses JUnit 5 + `BDDAssertions`; migrate in
-  **Sprint 06**.
-- `org.junit.jupiter:junit-jupiter-engine`, `org.mockito:mockito-junit-jupiter`,
-  `org.jetbrains.kotlin:kotlin-test`, and `kotlin-test-junit5` remain in
-  `build.gradle`; remove in **Sprint 07**.
+### Check 10 — `SendMoneySystemTest` passes
+
+```
+$ ./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"
+> Task :jacocoTestReport
+BUILD SUCCESSFUL in 14s
+6 actionable tasks: 2 executed, 4 up-to-date
+$ echo $?
+0
+```
+PASS. End-to-end HTTP transfer still works.
+
+### Check 11 — no Lombok regressions
+
+```
+$ grep -R "import lombok" src/
+$ echo $?
+1
+```
+PASS (exit 1 = no matches anywhere under `src/`).
 
 ## Commit
 
-Proposed one-line subject for the orchestrator's commit:
+`feat(domain): sprint-02 — extract ActivityTimestamp value class for activity occurrence instant`
 
-```
-feat(kotlin): sprint 2 — migrate SendMoneyServiceTest to Kotest BehaviorSpec + MockK
-```
+## Notes for Evaluator
 
-(SHA pending — the orchestrator stages and commits.)
+1. **Check 5 — strict literal vs. intent.** The grep
+   `LocalDateTime\.now\s*\(\s*\)` over
+   `src/main/kotlin/io/reflectoring/buckpal/account/domain/` returns two
+   matches today, both *inside* the VO
+   `companion object { fun now(): ... }` factories — one in
+   `BaselineDate.kt` (sprint-01, listed under the contract's "Unchanged"
+   files for this sprint so I could not touch it) and one in the brand-new
+   `ActivityTimestamp.kt` (the factory shape itself is required by the
+   contract's Deliverable §1). Removing either would either reach into
+   sprint-01's territory or violate the contract's explicit deliverable.
+   Substantively, every *caller* of `LocalDateTime.now()` in the domain
+   folder is gone — `Account.kt`'s two
+   `Activity(... LocalDateTime.now() ...)` call sites both became
+   `ActivityTimestamp.now()`. The intent of the check ("the cutoff factory
+   lives on the VOs") is fully met; the literal-expected-exit-1 reading is,
+   I believe, an oversight in the contract. Flagging rather than silently
+   mutating the VO API or the sprint-01 file. If the Evaluator decides this
+   is a hard FAIL, the cleanest mechanical fix is to scope check 5 to
+   exclude `BaselineDate.kt` and `ActivityTimestamp.kt` — that narrower
+   grep returns exit 1 today.
+
+2. **`ActivityWindow` selectors.** Followed the contract's "easier path"
+   (Risks §): `minByOrNull { it.timestamp.value }` and
+   `maxByOrNull { it.timestamp.value }` select on the unwrapped
+   `LocalDateTime`'s natural order; the result `Activity`'s `.timestamp`
+   (already `ActivityTimestamp`) is what gets returned. No `Comparable`
+   implementation was added to `ActivityTimestamp` — the spec's Target
+   Kotlin Conventions advise against operator overloads / orderings unless
+   a sprint actually needs them, and this one doesn't.
+
+3. **`AccountMapper` null handling.** Preserved the existing
+   `requireNotNull(activity.timestamp)` pattern on the read path — the JPA
+   column is nullable in the entity schema (column type `LocalDateTime?`)
+   but every persisted row has a non-null timestamp in practice, and the
+   pre-sprint-02 mapper already asserted non-null. Wrapping happens *after*
+   `requireNotNull`, so `ActivityTimestamp(timestamp)` is always given a
+   real value. On the write path (`mapToJpaEntity`),
+   `activity.timestamp.value` simply unwraps; nullability has never been at
+   issue there.
+
+4. **`ActivityTestData.withTimestamp(...)` overloads.** Kept both
+   `withTimestamp(ActivityTimestamp)` (canonical, used by
+   `ActivityWindowTest`) *and* a convenience
+   `withTimestamp(LocalDateTime)` (allowed by the spec as optional). The
+   convenience overload is the reason `AccountPersistenceAdapterTest`'s
+   `defaultActivity().withTimestamp(LocalDateTime.of(...))` chain compiled
+   without modification — no sprint-01 test had to be touched a second
+   time.
+
+5. **No mockk interop drama this sprint.** Per the contract's Risk §5, no
+   port signature gained an `ActivityTimestamp` parameter; the type only
+   appears in domain classes, the mapper, and tests that construct values
+   directly. Therefore the sprint-01 mockk/value-class workaround
+   (`StubbedLoadAccountPort` etc.) did not need to be repeated, and was not
+   touched.
+
+6. **`./gradlew clean build check` ran in ~77s on this host** (JDK 17,
+   Gradle 7.6.4). All test reports are populated; jacoco report rebuilt.

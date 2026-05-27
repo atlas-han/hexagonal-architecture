@@ -13,7 +13,7 @@ class ActivityTest : BehaviorSpec({
     val owner = AccountId(1L)
     val source = AccountId(2L)
     val target = AccountId(3L)
-    val timestamp = LocalDateTime.of(2024, 1, 1, 12, 0)
+    val timestamp = ActivityTimestamp(LocalDateTime.of(2024, 1, 1, 12, 0))
     val money = Money.of(500L)
 
     given("the Activity secondary constructor (without id)") {

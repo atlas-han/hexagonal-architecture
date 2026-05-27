@@ -1,7 +1,5 @@
 package io.reflectoring.buckpal.account.domain
 
-import java.time.LocalDateTime
-
 /**
  * A money transfer activity between [Account]s.
  */
@@ -10,7 +8,7 @@ data class Activity(
     val ownerAccountId: Account.AccountId,
     val sourceAccountId: Account.AccountId,
     val targetAccountId: Account.AccountId,
-    val timestamp: LocalDateTime,
+    val timestamp: ActivityTimestamp,
     val money: Money,
 ) {
 
@@ -18,7 +16,7 @@ data class Activity(
         ownerAccountId: Account.AccountId,
         sourceAccountId: Account.AccountId,
         targetAccountId: Account.AccountId,
-        timestamp: LocalDateTime,
+        timestamp: ActivityTimestamp,
         money: Money,
     ) : this(null, ownerAccountId, sourceAccountId, targetAccountId, timestamp, money)
 

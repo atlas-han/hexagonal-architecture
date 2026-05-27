@@ -6,6 +6,8 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.reflectoring.buckpal.account.domain.Account
 import io.reflectoring.buckpal.account.domain.Activity
+import io.reflectoring.buckpal.account.domain.ActivityTimestamp
+import io.reflectoring.buckpal.account.domain.BaselineBalanceFigures
 import io.reflectoring.buckpal.account.domain.Money
 import java.time.LocalDateTime
 
@@ -38,8 +40,10 @@ class AccountMapperTest : DescribeSpec({
             val result = mapper.mapToDomainEntity(
                 account = account,
                 activities = activities,
-                withdrawalBalance = 200L,
-                depositBalance = 700L,
+                figures = BaselineBalanceFigures(
+                    deposit = Money.of(700L),
+                    withdrawal = Money.of(200L),
+                ),
             )
 
             result.id shouldBe Account.AccountId(1L)
@@ -53,8 +57,10 @@ class AccountMapperTest : DescribeSpec({
             val result = mapper.mapToDomainEntity(
                 account = account,
                 activities = emptyList(),
-                withdrawalBalance = 0L,
-                depositBalance = 0L,
+                figures = BaselineBalanceFigures(
+                    deposit = Money.of(0L),
+                    withdrawal = Money.of(0L),
+                ),
             )
 
             result.id shouldBe Account.AccountId(7L)
@@ -69,8 +75,10 @@ class AccountMapperTest : DescribeSpec({
                 mapper.mapToDomainEntity(
                     account = account,
                     activities = emptyList(),
-                    withdrawalBalance = 0L,
-                    depositBalance = 0L,
+                    figures = BaselineBalanceFigures(
+                        deposit = Money.of(0L),
+                        withdrawal = Money.of(0L),
+                    ),
                 )
             }
         }
@@ -109,7 +117,7 @@ class AccountMapperTest : DescribeSpec({
             first.ownerAccountId shouldBe Account.AccountId(42L)
             first.sourceAccountId shouldBe Account.AccountId(42L)
             first.targetAccountId shouldBe Account.AccountId(41L)
-            first.timestamp shouldBe ts1
+            first.timestamp shouldBe ActivityTimestamp(ts1)
             first.money shouldBe Money.of(1000L)
 
             val second = mapped[1]
@@ -117,7 +125,7 @@ class AccountMapperTest : DescribeSpec({
             second.ownerAccountId shouldBe Account.AccountId(41L)
             second.sourceAccountId shouldBe Account.AccountId(41L)
             second.targetAccountId shouldBe Account.AccountId(42L)
-            second.timestamp shouldBe ts2
+            second.timestamp shouldBe ActivityTimestamp(ts2)
             second.money shouldBe Money.of(250L)
         }
 
@@ -238,7 +246,7 @@ class AccountMapperTest : DescribeSpec({
                 Account.AccountId(10L),
                 Account.AccountId(10L),
                 Account.AccountId(20L),
-                ts,
+                ActivityTimestamp(ts),
                 Money.of(750L),
             )
 
@@ -258,7 +266,7 @@ class AccountMapperTest : DescribeSpec({
                 Account.AccountId(1L),
                 Account.AccountId(1L),
                 Account.AccountId(2L),
-                ts,
+                ActivityTimestamp(ts),
                 Money.of(42L),
             )
 

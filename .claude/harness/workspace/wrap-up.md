@@ -1,113 +1,147 @@
-# Migration Wrap-up — BuckPal Java → Kotlin (hexagonal, Spring Boot 2.4.3)
+# Migration Wrap-up — Domain Value Object Extraction (BuckPal Kotlin)
 
-**Branch:** `kotlin-migration`
-**Generated:** 2026-05-17
-**Status:** complete — 10/10 sprints PASS, final build green.
+**Branch:** `claude/harness-domain-value-objects-5PRde`
+**Generated:** 2026-05-27
+**Status:** complete — 5/5 sprints PASS, final build green (`BUILD SUCCESSFUL in 25s`).
 
 ## 1. What shipped
 
-Every Java source under `src/` has been replaced by a Kotlin equivalent
-without changing public package paths, class names, or the
-`@WebAdapter` / `@PersistenceAdapter` / `@UseCase` semantics the
-ArchUnit rules depend on. The Spring Boot app still serves
-`POST /accounts/send/{src}/{dst}/{amount}` against H2 with the
-`SendMoneySystemTest.sql` fixture, the `application.yml` →
-`BuckPalConfigurationProperties` → `MoneyTransferProperties` wiring
-continues to bind, and all pre-existing JUnit and ArchUnit assertions
-remain green without weakening. Lombok is gone from `build.gradle`,
-`Optional` is gone from the codebase, and there are zero `kotlinc`
-warnings repo-wide.
+This migration replaced three primitive leaks in the BuckPal Kotlin domain layer
+with explicit Value Objects: `BaselineDate` (activity-window cutoff,
+`@JvmInline value class` over `LocalDateTime`), `ActivityTimestamp` (instant an
+Activity occurred, also a `@JvmInline value class` over `LocalDateTime`), and
+`BaselineBalanceFigures` (a deposit/withdrawal `Money` pair as a `data class`
+with a `toBaselineBalance()` helper). The application/port surface, services,
+and persistence adapter now carry these VOs; primitives are unwrapped only at
+the HQL boundary inside `AccountPersistenceAdapter`. Four candidates were
+explicitly REJECTed in the sprint-00 ADR (`Account.baselineBalance` retype,
+`transferThreshold` VO, `SendMoneyController` path variables, `Money` BigInteger
+narrowing) — the rejection rationale is preserved in
+`handoffs/sprint-04-vo-convention.md`. External contracts are byte-identical:
+the HTTP path `POST /accounts/send/{Long}/{Long}/{Long}` is unchanged, JPA
+column types and HQL parameter names are untouched, and ArchUnit hexagonal
+layering still holds.
 
 ## 2. Sprint ledger
 
-| #  | Title                              | Commit    | Status |
-|----|------------------------------------|-----------|--------|
-| 00 | Build configuration                | `e049e5e` | PASS   |
-| 01 | `common/` package                  | `fc0208e` | PASS   |
-| 02 | `account/domain/`                  | `159766e` | PASS   |
-| 03 | `account/application/port/`        | `7a9be90` | PASS   |
-| 04 | `account/application/service/`     | `083a156` | PASS   |
-| 05 | `account/adapter/in/web/`          | `82cdaf3` | PASS   |
-| 06 | `account/adapter/out/persistence/` | `d013301` | PASS   |
-| 07 | Root Spring Boot setup             | `3490335` | PASS   |
-| 08 | Test sources                       | `aaf0e4f` | PASS   |
-| 09 | Cleanup & verification             | `f283463` | PASS   |
+| # | Title | Commit | Status |
+|---|-------|--------|--------|
+| 00 | Analysis and ADR (read-only) — VO candidate inventory + decision table | `b3ddc61` | PASS |
+| 01 | `BaselineDate` value class for activity-window cutoff | `81ad214` | PASS |
+| 02 | `ActivityTimestamp` value class for activity occurrence instant | `49da855` | PASS |
+| 03 | `BaselineBalanceFigures` data class for mapper deposit/withdrawal pair | `34813fa` | PASS |
+| 04 | Final verification + VO convention notes (zero production source touched) | `966f04a` | PASS |
 
-Titles from `spec/product-spec.md` §4. SHAs from
-`git log --oneline kotlin-migration`. Status from each
-`reviews/sprint-NN-review.md` STATUS line.
+Pre-sprint commits (separate from the 5-sprint sequence, not counted above):
+`51a0f50` planner output (product-spec.md), `7f78473` archive of previous run,
+`5948495` JDK 21 → JDK 17 toolchain hot-fix in `build.gradle` /
+`gradle.properties` (no `src/` touched).
 
-## 3. Final verification
+## 3. Branch state
+
+- **Branch:** `claude/harness-domain-value-objects-5PRde`
+- **Sprint commits since baseline (`5948495`):** 5 (`b3ddc61` → `966f04a`).
+- **`git diff 5948495..HEAD --stat -- src/`:** 19 files changed,
+  169 insertions, 66 deletions. Net +103 lines for 3 VOs and call-site
+  rewrites.
+- **New files (3):**
+  - `src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt`
+  - `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityTimestamp.kt`
+  - `src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineBalanceFigures.kt`
+- **External contract files verified untouched** since baseline `5948495`:
+  - `account/adapter/in/web/SendMoneyController.kt` — HTTP path variables intact.
+  - `account/adapter/out/persistence/AccountJpaEntity.kt` and
+    `ActivityJpaEntity.kt` — JPA columns intact.
+  - `account/adapter/out/persistence/ActivityRepository.kt` — HQL `:since`,
+    `:until`, `:ownerAccountId`, `:accountId` parameters intact (byte-identical
+    diff).
+  - `src/test/resources/io/reflectoring/buckpal/SendMoneySystemTest.sql` —
+    fixture unchanged.
+
+## 4. Build status
 
 ```
 ./gradlew clean build check
+BUILD SUCCESSFUL in 25s
 ```
 
-The original verification was executed by the Sprint 9 Evaluator. The
-run log (`.claude/harness/workspace/logs/run-log.md`) was never
-populated by the orchestrator (only `.gitkeep` exists), so this section
-cites the Evaluator's recorded result rather than re-running the
-gradle daemon. From `.claude/harness/workspace/reviews/sprint-09-review.md`
-(Behavioral Correctness section, lines 10–32):
+Final verification recorded in `logs/run-log.md` at sprint-04 review
+(`2026-05-27T14:15:46Z | STATUS=PASS`). All Kotest specs green; ArchUnit
+`DependencyRuleTests` reports `tests=2 failures=0 errors=0`;
+`BuckPalApplicationTests` (Spring context boot) and `SendMoneySystemTest`
+(end-to-end HTTP transfer) both pass. Gitleaks reported `SKIPPED` every sprint
+(no binary in the container — documented escape-hatch behaviour, not a FAIL).
 
-```
-Re-ran every mandated command with JAVA_HOME=corretto-17.0.13:
+## 5. Key learnings (highest-signal surprises — see `learnings.md` §2 for full detail)
 
-- ./gradlew clean → BUILD SUCCESSFUL (exit 0)
-- ./gradlew compileKotlin compileTestKotlin → BUILD SUCCESSFUL (exit 0)
-- ./gradlew test → BUILD SUCCESSFUL (exit 0)
-- ./gradlew check → BUILD SUCCESSFUL (exit 0)
-- ./gradlew clean build → BUILD SUCCESSFUL (exit 0)
+- **Mockk 1.13.8 cannot mock methods whose parameter is a `@JvmInline value class`** — the boxed-vs-unboxed JVM ABI breaks matcher slot attribution. Sprint-01 replaced two `LoadAccountPort` mockk mocks with hand-rolled test doubles (`RecordingLoadAccountPort`, `StubbedLoadAccountPort`).
+- **`ActivityWindow.minByOrNull(Activity::timestamp)` broke once `timestamp` became `ActivityTimestamp`** (no `Comparable`); fixed with the trailing-lambda selector `minByOrNull { it.timestamp.value }`.
+- **Sprint-02 contract grep check 5 was self-contradictory** (forbade `LocalDateTime.now()` in `account/domain/` while the VO factories themselves were in that folder) — Evaluator ruled PASS by intent; recorded as a candidate for grep-scope pre-flight tightening.
+- **Named-argument construction of `BaselineBalanceFigures(deposit, withdrawal)` rescued a silent positional-swap risk** — the old `mapToDomainEntity(_, _, withdrawalBalance, depositBalance)` signature had the *opposite* positional order from the new VO field order.
+- **JDK 21 in the container vs Gradle 7.6.4 launcher** forced a separate hot-fix commit (`5948495`) pinning the Java toolchain to 17; any future container that unpins re-triggers `Unsupported class file major version 65`.
 
-build/test-results/test/TEST-*.xml per-suite parse:
-- BuckPalApplicationTests:          1/0/0
-- SendMoneySystemTest:               1/0/0
-- DependencyRuleTests:               2/0/0
-- AccountTest:                       4/0/0
-- ActivityWindowTest:                3/0/0
-- SendMoneyServiceTest:              2/0/0
-- SendMoneyControllerTest:           1/0/0
-- AccountPersistenceAdapterTest:     2/0/0
-- Totals: 16 tests / 0 failures / 0 errors / 0 skipped.
-```
+## 6. Next steps for the human
 
-See `.claude/harness/workspace/reviews/sprint-09-review.md:10-32` for
-the full Behavioral Correctness block and lines 124–148 for the
-20-item contract checklist (all `[x]`).
+This work is complete and self-contained; the steps below require human
+judgment and are not auto-performed.
 
-## 4. Key learnings (1-line each)
+- [ ] Review the diff: `git log --oneline 5948495..HEAD` and
+      `git diff 5948495..HEAD -- src/` (19 files, +169/-66).
+- [ ] Decide whether to open a PR against `main` (`gh pr create ...`) — this is
+      a user decision; the orchestrator did not push or create a PR.
+- [ ] Decide merge strategy if the PR is opened: squash merge (collapses the
+      5 sprint commits into one) vs. merge commit (preserves the per-sprint
+      history, which mirrors the harness ledger above).
+- [ ] Optionally remove the worktree if you are done with it:
+      `git worktree remove <path>`.
+- [ ] Decide which deferred work from `learnings.md` §5 to schedule next —
+      the most consequential candidates are listed in §7 below.
 
-- **Sprint 0** — Gradle 6.8.2 + Lombok 1.18.18 are incompatible with JDK 17 (`Unsupported class file major version 61`); the migration had to start by bumping the wrapper to Gradle 7.6.4 and pinning Lombok to 1.18.30.
-- **Sprint 2** — Mockito 3 (no `mockito-inline`) cannot subclass-mock Kotlin's final-by-default classes; `Account` had to be marked `open class` with `open fun`/`open val` on every method/property the tests mocked.
-- **Sprints 2 + 4 + 9** — Collapsing `Account.getId(): Optional<AccountId>` touched 3 layers (domain, service, test) living on 3 different sprints; a multi-sprint `Optional` shim with `@get:JvmName("getIdOrNull")` was kept until Sprint 9 finally erased `Optional` from the codebase.
-- **Sprint 6** — Kotlin's synthetic-property sugar applies only to *Java* getters, not to Kotlin-declared `fun getX()`; `account.activityWindow.activities` failed to compile and had to be written `account.activityWindow.getActivities()`.
-- **Sprint 8** — Under `-Xjsr305=strict` (set in Sprint 0), Mockito's `eq`/`any`/`capture` return `null`, which Kotlin's `Intrinsics.checkNotNullExpressionValue` rejects with NPE *before* the mock interceptor runs; three test-local null-bridge helpers were required to make every `given(...)` / `verify(...)` call site compile and run.
+## 7. Risk register / follow-up candidates
 
-## 5. Next steps for the human
+The four highest-signal items from `learnings.md` §5, in suggested priority
+order:
 
-- [ ] Review the diff against `main`:
-      `git log --oneline main..kotlin-migration` and
-      `git diff main...kotlin-migration`.
-- [ ] If satisfied, merge or rebase onto `main`:
-      `git checkout main && git merge --no-ff kotlin-migration`
-      (or `git checkout kotlin-migration && git rebase main && git push`).
-- [ ] Delete the worktree once you are done with it:
-      `git worktree remove .claude/worktrees/harness-learnings-wrapup`
-      (and any other harness worktrees you no longer need).
-- [ ] Decide what to do with deferred work — see
-      `.claude/harness/workspace/learnings.md` §5 (operator-overload
-      cleanup on `Money.add`/`Money.subtract`, `build.gradle.kts`
-      flip, `mockito-inline` adoption to drop `open` on `Account`, a
-      runtime test for the `@field:NotNull` null-rejection path,
-      extracting Mockito null-bridge helpers, `kotlin-stdlib-jdk8` →
-      unified `kotlin-stdlib`, Gradle 8 deprecation warning).
+1. **`Money.amount: BigInteger` → `Long` silent narrowing in
+   `AccountMapper.mapToJpaEntity`** (sprint-00 ADR row 7, REJECT /
+   OUT-OF-SCOPE). Pre-existing precision-loss risk when a `Money` exceeds
+   `Long.MAX_VALUE`. Needs its own multi-sprint stream — touches `Money`
+   storage type, `ActivityJpaEntity.amount` column, the SQL fixture in
+   `SendMoneySystemTest.sql`, and every arithmetic call site. Highest impact,
+   highest scope.
+2. **Mockk → newer version (or migration to a value-class-aware mocking
+   library)**. Sprint-01 forced hand-rolled test doubles for `LoadAccountPort`
+   because mockk 1.13.8 cannot bind matchers to a `@JvmInline value class`
+   parameter slot. Check mockk's tracker for a fix; if available, restore the
+   `verify { loadAccountPort.loadAccount(any(), any()) }` form in
+   `SendMoneyServiceTest` / `GetAccountBalanceServiceTest`.
+3. **Gradle upgrade (7.6.4 → 8.x)**. Deprecation warnings surface on every
+   `./gradlew check`; an upgrade would also let the JDK 17 toolchain pin
+   relax. Dedicated single-sprint stream, separate from VO work.
+4. **Harness pre-flight: contract-grep scope tightening**. Recurring
+   Evaluator finding (sprint-02, sprint-04): a grep over `account/domain/`
+   that forbids primitive leaks at call sites will also match the VO
+   declarations themselves. Add a pre-flight rule to `agents/planner.md` /
+   `agents/evaluator.md` that flags any `rg|grep -RnE` over `account/domain/`
+   for VO-file exclusion.
 
-## 6. Artifacts produced
+Three more deferred items live in `learnings.md` §5 and are lower priority:
+Spring `Converter<String, TransferThreshold>` (likely never worth doing),
+`SendMoneyController` path-variable retype (permanently out of scope — HTTP
+contract), and `Account.baselineBalance` retype (rejected on the
+"already-wrapped primitives do not get a second wrapper" rule).
 
-- `spec/product-spec.md` — the plan (10-sprint breakdown + risk register)
-- `contracts/sprint-NN-contract.md` × 10 — agreed sprint contracts (all `STATUS: AGREED`; 0 went through `NEEDS_REVISION`)
-- `handoffs/sprint-NN-handoff.md` × 10 — Generator self-reports
-- `reviews/sprint-NN-review.md` × 10 — Evaluator verdicts (all `STATUS: PASS`; weighted scores 9.05 – 9.55)
-- `logs/run-log.md` — *not populated by this run* (only `.gitkeep` present); see `learnings.md` §4 for the recommendation to fix in the next harness run
-- `learnings.md` — cross-sprint patterns, surprises, validated Lombok→Kotlin mapping, harness signals, deferred work
+---
+
+## Artifacts produced
+
+- `spec/product-spec.md` — the plan
+- `contracts/sprint-NN-contract.md` × 5 — agreed sprint contracts
+  (sprint-01 needed 4 NEEDS_REVISION rounds; the other 4 reached AGREED in 1)
+- `handoffs/sprint-NN-handoff.md` × 4 (plus `sprint-00-vo-candidates.md` ADR
+  and `sprint-04-vo-convention.md`)
+- `reviews/sprint-NN-review.md` × 5 — Evaluator verdicts (all PASS on first
+  submission; zero FAIL → retry cycles)
+- `logs/run-log.md` — phase-by-phase transitions
+- `learnings.md` — cross-sprint patterns + gotchas
 - `wrap-up.md` — this file

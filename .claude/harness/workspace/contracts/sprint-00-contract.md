@@ -1,196 +1,138 @@
 STATUS: AGREED
 
-# Sprint 00 Contract — Build config: introduce Kotest + MockK alongside the existing stack
+# Sprint 00 Contract — Analysis + ADR (read-only)
 
 ## Sprint goal
 
-Add Kotest (JUnit5 runner + core assertions + Spring extension) and MockK
-(core + springmockk) as test dependencies, **without removing** any existing
-test dependency. The repository continues to compile every existing test class
-unchanged and `./gradlew test` stays green.
+Lock down which Value Object candidates from the spec's inventory will be
+extracted in subsequent sprints, by producing a reviewable ADR-style decision
+table. No production or test code is modified in this sprint.
 
-## Files in scope
+## Deliverable
 
-- `build.gradle`
+A single new file:
 
-Anything outside this single file is off-limits for Sprint 00. In particular,
-no file under `src/main/**` or `src/test/**` may be edited, created, or deleted.
+- `.claude/harness/workspace/handoffs/sprint-00-vo-candidates.md`
 
-## Goal (verbatim from spec)
+The file MUST contain a markdown table with at least these columns, in this
+order:
 
-> Add Kotest (JUnit5 runner + core assertions + Spring extension) and MockK
-> (core + springmockk) as test dependencies, **without removing** any existing
-> test dependency. The repository continues to compile every existing test
-> class unchanged.
+| Candidate | Current type | Decision (ACCEPT/REJECT) | Target VO type name | Implementing sprint | Rationale |
 
-## Hard exit criteria (verbatim from spec)
+Rules for the table:
 
-- `build.gradle` declares `io.kotest:kotest-runner-junit5`,
-  `io.kotest:kotest-assertions-core`,
-  `io.kotest:kotest-extensions-spring`,
-  `io.mockk:mockk`, and `com.ninja-squad:springmockk` at versions
-  compatible with Kotlin 1.6.21 / Spring Boot 2.4.3
-  (Kotest 5.5.x line, MockK 1.13.x, springmockk 3.x).
-- `junit-jupiter-engine`, `mockito-junit-jupiter`, `kotlin-test`,
-  `kotlin-test-junit5`, `archunit`, `junit-platform-launcher`, `h2`, and the
-  `spring-boot-starter-test` declaration are **unchanged**.
-- `test { useJUnitPlatform() }` block is unchanged.
-- `./gradlew dependencies --configuration testRuntimeClasspath | grep -E "(kotest|mockk)"` lists the new artifacts.
-- `./gradlew test` exits 0; no test classes are edited in this sprint.
+- Every row from the spec's "Candidate inventory" (rows 1–7) MUST appear,
+  with the same ACCEPT/REJECT decision the spec states, OR with an explicit
+  written justification under the table if the Generator chooses to flip a
+  decision (which then must list which sprints are affected).
+- ACCEPT rows MUST cite the sprint number that will implement the VO
+  (`sprint-01` for `BaselineDate`, `sprint-02` for `ActivityTimestamp`,
+  `sprint-03` for `BaselineBalanceFigures`).
+- REJECT rows leave the "Implementing sprint" cell as `—`.
+- The "Target VO type name" column is the proposed new Kotlin type name (or
+  `—` for REJECT rows).
 
-## Out of scope (verbatim from spec, plus additions)
+The handoff file should also include a short "Read-verified files" section
+listing the production files the Generator actually opened to confirm the
+inventory matches current code.
 
-From spec:
-- any change to `src/test/**`
-- removing any existing test dependency
-- switching the build script to `.kts`
-- bumping Kotlin / Spring Boot versions
-- touching `compileKotlin` options
+## Inputs (read-only)
 
-Generator-added:
-- editing `src/main/**` (including `src/main/kotlin/**`)
-- editing `compileTestKotlin` options block
-- editing `repositories`, `plugins`, `group`, `version`, or any non-`dependencies`
-  block other than what the spec already permits
-- introducing Kotest plugin `io.kotest:kotest-framework-multiplatform-plugin-gradle`
-  (we only need the JUnit5 runner — no plugin install required)
-- adding `kotest-property`, `kotest-assertions-json`, or any other Kotest
-  add-on module not listed in the spec
-- adding any new `repositories { ... }` entry (Maven Central already covers all
-  artifacts in scope)
+The Generator may Read these files. It MUST NOT edit any of them:
 
----
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Account.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Activity.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindow.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/Money.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/in/SendMoneyCommand.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/in/GetAccountBalanceQuery.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/LoadAccountPort.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/UpdateAccountStatePort.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/AccountLock.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceService.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/MoneyTransferProperties.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountMapper.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/BuckPalConfiguration.kt`
+- `src/main/kotlin/io/reflectoring/buckpal/BuckPalConfigurationProperties.kt`
 
-## Generator-proposed concrete changes
+## Acceptance checks (Evaluator runs these directly)
 
-The following changes will be applied to `build.gradle` (and only `build.gradle`).
+The Evaluator MUST execute each command and record the result.
 
-### Version pins
+1. Deliverable exists:
+   ```
+   test -f .claude/harness/workspace/handoffs/sprint-00-vo-candidates.md
+   ```
+   Expected: exit 0.
 
-The Generator will pin these exact versions, all compatible with Kotlin 1.6.21
-and Spring Boot 2.4.3:
+2. Deliverable has the required columns. Grep for the header row:
+   ```
+   grep -F "| Candidate | Current type | Decision (ACCEPT/REJECT) | Target VO type name | Implementing sprint | Rationale |" \
+     .claude/harness/workspace/handoffs/sprint-00-vo-candidates.md
+   ```
+   Expected: exit 0 (one matching line).
 
-| Artifact                                    | Version |
-|---------------------------------------------|---------|
-| `io.kotest:kotest-runner-junit5`            | `5.5.5` |
-| `io.kotest:kotest-assertions-core`          | `5.5.5` |
-| `io.kotest:kotest-extensions-spring`        | `1.1.3` |
-| `io.mockk:mockk`                            | `1.13.8` |
-| `com.ninja-squad:springmockk`               | `3.1.2` |
+3. All 7 inventory candidates are listed. The handoff must contain at least
+   one row per row of the spec inventory. As a lower bound, the file must
+   include all of these strings:
+   - `LocalDateTime` (rows 1, 2)
+   - `withdrawalBalance` (row 3)
+   - `baselineBalance` (row 4)
+   - `transferThreshold` (row 5)
+   - `SendMoneyController` (row 6)
+   - `BigInteger` (row 7)
 
-Rationale (informational only — Generator will not add comments to
-`build.gradle` for it):
+4. No production or test code touched:
+   ```
+   git diff --quiet -- src/main src/test
+   ```
+   Expected: exit 0 (clean).
 
-- **Kotest 5.5.x** is the last 5.x line that still ships a Kotlin-1.6-compatible
-  runtime; 5.6+ raises the Kotlin floor.
-- **`kotest-extensions-spring` 1.1.3** is the Spring extension version paired
-  with the Kotest 5.5.x line (the extension moved out of the main `kotest-*`
-  coordinate group in 5.x).
-- **MockK 1.13.8** supports Kotlin 1.6 and final-class mocking via the
-  transitive `mockk-agent-jvm` (covers Risk Register item #4).
-- **springmockk 3.1.2** is the 3.x line, which targets Spring Boot 2.4.x
-  (covers Risk Register item #3).
+5. External contracts unchanged (redundant with #4 but explicit):
+   ```
+   git diff --quiet -- \
+     src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt \
+     src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt \
+     src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt
+   ```
+   Expected: exit 0.
 
-### Where each dependency goes in `build.gradle`
+6. Build is trivially green (nothing changed):
+   ```
+   ./gradlew test
+   ```
+   Expected: exit 0 (BUILD SUCCESSFUL, all test suites pass).
 
-All five new dependencies are added inside the existing top-level
-`dependencies { ... }` block, in the `testImplementation` section, immediately
-**after** the existing line
-`testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'` and **before**
-the `runtimeOnly 'com.h2database:h2'` line. They are added as five contiguous
-lines, in this order:
+## Out of scope
 
-```
-testImplementation 'io.kotest:kotest-runner-junit5:5.5.5'
-testImplementation 'io.kotest:kotest-assertions-core:5.5.5'
-testImplementation 'io.kotest:kotest-extensions-spring:1.1.3'
-testImplementation 'io.mockk:mockk:1.13.8'
-testImplementation 'com.ninja-squad:springmockk:3.1.2'
-```
+- Editing any file under `src/main` or `src/test`.
+- Editing `build.gradle.kts`.
+- Creating the actual VO Kotlin files (those belong to sprint-01/02/03).
+- Documentation in `README.md` or other production docs.
+- Changing the spec itself (Planner already produced it).
 
-### Dependencies kept **unchanged** (must remain byte-identical)
+## Risks
 
-The Generator will not touch any of these lines:
-
-- `testImplementation('org.springframework.boot:spring-boot-starter-test') { exclude group: 'junit' }`
-- `testImplementation 'org.junit.jupiter:junit-jupiter-engine:5.0.1'`
-- `testImplementation 'org.mockito:mockito-junit-jupiter:2.23.0'`
-- `testImplementation 'com.tngtech.archunit:archunit:0.16.0'`
-- `testImplementation 'org.junit.platform:junit-platform-launcher:1.4.2'`
-- `testImplementation 'com.h2database:h2'`
-- `testImplementation 'org.jetbrains.kotlin:kotlin-test'`
-- `testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'`
-- `runtimeOnly 'com.h2database:h2'`
-- the `test { useJUnitPlatform() }` block
-- the `compileKotlin { ... }` and `compileTestKotlin { ... }` blocks
-- the `plugins { ... }`, `repositories { ... }`, `group`, `version`, and
-  `apply plugin: 'io.spring.dependency-management'` lines
-
-### Test runner / engine collision handling
-
-`kotest-runner-junit5` registers a JUnit Platform `TestEngine`. The existing
-`junit-jupiter-engine:5.0.1` registers its own engine. **Both engines are
-intentionally left active for Sprint 00 through Sprint 06.** This is mandated
-by the spec (Risk Register #5) and is the reason `useJUnitPlatform()` stays
-untouched: the platform discovers and runs both engines concurrently.
-
-Concrete handling for Sprint 00:
-
-- Do **not** add `excludeEngines` / `includeEngines` filters to the `test`
-  block. Both engines must run.
-- Do **not** exclude transitive `junit-platform-engine` from any artifact.
-  Kotest brings its own `junit-platform-engine` transitively at a version
-  compatible with the existing `junit-platform-launcher:1.4.2`; the resolver
-  will pick the higher version (an upgrade only on the platform side, which
-  is API-stable across the 1.x line and does not affect existing JUnit 5
-  test classes).
-- Do **not** add `mockk-agent-jvm` explicitly — it arrives transitively via
-  `io.mockk:mockk:1.13.8`. (Spec Risk Register #4 only requires the agent if
-  a final-class mocking failure surfaces, which cannot happen in Sprint 00
-  since no test code is edited.)
-- If `./gradlew test` reports duplicate test execution (the same `@Test`
-  picked up by both engines), that is a real defect — Generator stops and
-  writes `needs input:` rather than masking it. (Not expected: Jupiter only
-  scans `@Test`-annotated methods, Kotest only scans `Spec` subclasses;
-  current test tree has no overlap.)
-
-### Verification commands the Generator will run before handoff
-
-In order, from the worktree root:
-
-1. `./gradlew --no-daemon compileKotlin compileTestKotlin`
-   → expect `BUILD SUCCESSFUL`.
-2. `./gradlew --no-daemon dependencies --configuration testRuntimeClasspath | grep -E "(kotest|mockk|springmockk)"`
-   → expect lines for `kotest-runner-junit5:5.5.5`,
-   `kotest-assertions-core:5.5.5`, `kotest-extensions-spring:1.1.3`,
-   `mockk:1.13.8`, and `springmockk:3.1.2` (each may appear more than once
-   via transitive paths — at least one occurrence per artifact is required).
-3. `./gradlew --no-daemon dependencies --configuration testRuntimeClasspath | grep -E "(junit-jupiter-engine|mockito-junit-jupiter|kotlin-test|archunit|junit-platform-launcher|h2)"`
-   → expect every previously-present artifact still present (negative-removal
-   evidence for the "unchanged" exit criterion).
-4. `./gradlew --no-daemon test`
-   → expect `BUILD SUCCESSFUL` and the same test count as the pre-sprint
-   baseline (no test classes were edited, so the count must be identical).
-5. `git diff --stat` from the worktree root
-   → expect exactly one line: `build.gradle | <N> +`. No deletions, no other
-   files touched.
-
-If step 4 fails, the Generator will not hand off; it will diagnose
-(typically a version-pin issue) and rerun.
-
-## Acceptance checks (mechanically verifiable by Evaluator)
-
-- [ ] `grep -E "io.kotest:kotest-runner-junit5:5\\.5\\.5" build.gradle` → matches one line
-- [ ] `grep -E "io.kotest:kotest-assertions-core:5\\.5\\.5" build.gradle` → matches one line
-- [ ] `grep -E "io.kotest:kotest-extensions-spring:1\\.1\\.3" build.gradle` → matches one line
-- [ ] `grep -E "io.mockk:mockk:1\\.13\\.8" build.gradle` → matches one line
-- [ ] `grep -E "com.ninja-squad:springmockk:3\\.1\\.2" build.gradle` → matches one line
-- [ ] `grep -E "junit-jupiter-engine:5\\.0\\.1" build.gradle` → matches one line (unchanged)
-- [ ] `grep -E "mockito-junit-jupiter:2\\.23\\.0" build.gradle` → matches one line (unchanged)
-- [ ] `grep -E "kotlin-test(-junit5)?'" build.gradle` → matches two lines (both kotlin-test variants present)
-- [ ] `grep -E "archunit:0\\.16\\.0" build.gradle` → matches one line (unchanged)
-- [ ] `grep -E "junit-platform-launcher:1\\.4\\.2" build.gradle` → matches one line (unchanged)
-- [ ] `grep -E "useJUnitPlatform\\(\\)" build.gradle` → matches one line (unchanged)
-- [ ] `git diff --name-only HEAD` lists only `build.gradle` → no other files touched
-- [ ] `./gradlew dependencies --configuration testRuntimeClasspath | grep -E "(kotest|mockk)"` → non-empty output listing all five new artifacts
-- [ ] `./gradlew test` → exits 0
+- **Generator flips a REJECT to ACCEPT (or vice versa) silently.** Any
+  decision change MUST appear in writing under the table with rationale AND
+  must call out which downstream sprints are impacted. If the change requires
+  a new sprint, the Generator instead emits `// EVALUATOR:` style commentary
+  and asks for spec revision rather than acting on it.
+- **Accidental code edits while exploring.** The Generator uses Read only.
+  Any file save under `src/` invalidates the sprint and forces a redo.
+- **Deliverable filename typo.** The downstream sprints reference
+  `sprint-00-vo-candidates.md` by exact path; any deviation breaks the chain.
+- **Spec-vs-code drift.** If the actual code disagrees with the spec's row
+  (e.g. a parameter has already been renamed), the handoff must note the
+  discrepancy in a "Notes" sub-section beneath the table so a follow-up
+  decision is visible.
+- **New candidate discovered.** If the Generator finds a primitive leak the
+  spec missed, it adds an 8th row with decision = `DEFER` and rationale =
+  "out of current spec scope; consider a follow-up sprint." It does NOT
+  silently implement the new VO.

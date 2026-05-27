@@ -1,170 +1,245 @@
-# Sprint 01 Handoff — Migrate `account/domain/*` tests to Kotest BehaviorSpec
+# Sprint 01 Handoff — `BaselineDate` value class
 
-## Status
+## Summary
 
-**Green / ready for Evaluator.** The previous `needs input:` handoff is
-superseded by this one. The blocking BOM downgrade described there
-(`kotlinx-coroutines-test` pinned to 1.4.2 by Spring Boot 2.4.3 BOM) was
-resolved out-of-band in a Sprint 00 follow-up hot-fix commit (`753c1dc
-fix(kotest): sprint 00 follow-up — pin kotlinx-coroutines to 1.6.4 for Kotest
-runtime`). That commit is **not part of Sprint 01's diff** — Sprint 01's own
-working-tree change remains the two `.kt` files declared in scope.
+Introduced `BaselineDate`, a `@JvmInline value class` wrapping `LocalDateTime`,
+to model the activity-window cutoff distinctly from any other clock value at
+the application/port surface. Replaced every raw `LocalDateTime` that carried
+this meaning in `LoadAccountPort`, `SendMoneyService`,
+`GetAccountBalanceService`, and `AccountPersistenceAdapter`. The persistence
+adapter unwraps to `LocalDateTime` only when calling into `ActivityRepository`
+so the HQL parameter types stay primitive (Risk #1 in the spec risk register).
+The corresponding Kotest specs were updated; service-level mock setups for
+`LoadAccountPort` were migrated from `mockk` to small hand-rolled test
+doubles because mockk 1.13.8 cannot bind matcher slots to a value-class
+parameter (see *Notes for Evaluator*).
 
-## What changed (this sprint's working-tree edits)
+## Files changed
 
-- `src/test/kotlin/io/reflectoring/buckpal/account/domain/AccountTest.kt`
-  rewritten as `class AccountTest : BehaviorSpec({ ... })`. One top-level
-  `given(...)` wraps four `` `when`(...) `` blocks, each containing a single
-  `then(...)` leaf — 4 leaf tests total, identical to the prior JUnit `@Test`
-  count. AssertJ `assertThat(x).isEqualTo(y)` → infix `x shouldBe y`,
-  `.isTrue()` / `.isFalse()` → `.shouldBeTrue()` / `.shouldBeFalse()`,
-  `.hasSize(n)` → infix `shouldHaveSize n`. JUnit + AssertJ imports removed.
+Production source:
 
-- `src/test/kotlin/io/reflectoring/buckpal/account/domain/ActivityWindowTest.kt`
-  rewritten as `class ActivityWindowTest : BehaviorSpec({ ... })`. One
-  top-level `given(...)` wraps three `` `when`(...) `` blocks with one
-  `then(...)` leaf each — 3 leaf tests. The original private
-  `startDate()` / `inBetweenDate()` / `endDate()` helpers became
-  `val ... : () -> LocalDateTime = { ... }` lambdas at the top of the spec
-  body, invoked as `startDate()` at each call site to keep the diff visually
-  1-to-1 with the JUnit version.
+- `src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt` —
+  NEW. `@JvmInline value class BaselineDate(val value: LocalDateTime)` with a
+  `minusDays(days: Long): BaselineDate` helper used by `SendMoneyService` and
+  a `companion object` factory `now(): BaselineDate`.
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/LoadAccountPort.kt` —
+  `loadAccount` signature now takes `baselineDate: BaselineDate`;
+  `java.time.LocalDateTime` import removed.
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt` —
+  builds the cutoff as `BaselineDate.now().minusDays(10)`; no raw
+  `LocalDateTime.now()` left in the file.
+- `src/main/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceService.kt` —
+  calls `loadAccountPort.loadAccount(accountId, BaselineDate.now())`; raw
+  `LocalDateTime.now()` removed.
+- `src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapter.kt` —
+  `loadAccount` parameter retyped to `BaselineDate`; the three
+  `ActivityRepository` calls now pass `baselineDate.value` (primitive
+  `LocalDateTime`) preserving the HQL parameter shape.
 
-`git diff --name-only HEAD -- src/ build.gradle` lists exactly these two
-paths. No production code, no fixtures, no other tests, no build script are
-touched in this sprint's diff.
+Tests:
 
-## How Sprint 00 hot-fix relates
-
-Commit `753c1dc` (separate from Sprint 01) added
-`kotlinx-coroutines-{core,test}` and their `-jvm` counterparts at 1.6.4 to
-`build.gradle`'s test deps, overriding the Spring Boot 2.4.3 BOM constraint
-that was downgrading `kotlinx-coroutines-test` to 1.4.2 and stripping
-`TestDispatcher` from the test classpath. That fix landed as its own commit;
-this sprint did not edit `build.gradle`.
+- `src/test/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceServiceTest.kt` —
+  replaced the mocked `LoadAccountPort` with a tiny `RecordingLoadAccountPort`
+  inner test double; the test now asserts call count, captured `AccountId`,
+  and presence of a non-null `BaselineDate`. The `Account` collaborator is
+  still a mockk mock.
+- `src/test/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyServiceTest.kt` —
+  `LoadAccountPort` mockk replaced by an inner `StubbedLoadAccountPort` that
+  registers accounts by id and records all baseline-date arguments. All other
+  mocks (`AccountLock`, `UpdateAccountStatePort`, `Account`) remain
+  mockk-backed. The "threshold exceeded" leaf now checks
+  `loadAccountPort.loadCallsByAccountId.size shouldBe 0` instead of
+  `verify(exactly = 0) { loadAccountPort.loadAccount(...) }`.
+- `src/test/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountPersistenceAdapterTest.kt` —
+  direct `adapterUnderTest.loadAccount(...)` call now passes
+  `BaselineDate(LocalDateTime.of(2018, 8, 10, 0, 0))`.
+- `src/test/kotlin/io/reflectoring/buckpal/SendMoneySystemTest.kt` — internal
+  `loadAccount` helper now passes `BaselineDate(LocalDateTime.now())` to the
+  port; the HTTP path itself is unaltered.
 
 ## Self-check results
 
-Run from the worktree root with
-`JAVA_HOME=/Users/hannamil/Library/Java/JavaVirtualMachines/corretto-17.0.13/Contents/Home`:
+All eight acceptance checks from `sprint-01-contract.md` were executed.
 
-| Step | Command | Result |
-|------|---------|--------|
-| 1 | `./gradlew --no-daemon compileKotlin compileTestKotlin` | **BUILD SUCCESSFUL** in 3s. Both up-to-date / parse cleanly. |
-| 2 | `./gradlew --no-daemon test --tests "io.reflectoring.buckpal.account.domain.*"` | **BUILD SUCCESSFUL** in 5s. `AccountTest` 4 tests / `ActivityWindowTest` 3 tests, 0 failures, 0 errors, 0 skipped. |
-| 3 | `./gradlew --no-daemon test` (full suite) | **BUILD SUCCESSFUL** in 10s. Aggregate 16 tests across all `TEST-*.xml` reports, 0 failures (identical to Sprint 00 baseline). |
-| 4 | `./gradlew --no-daemon check` | **BUILD SUCCESSFUL** in 3s. ArchUnit `DependencyRuleTests` included; passes. |
+### Check 1 — `BaselineDate.kt` exists
 
-JUnit XML evidence:
+```
+$ test -f src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt
+$ echo $?
+0
+```
+PASS.
 
-- `build/test-results/test/TEST-io.reflectoring.buckpal.account.domain.AccountTest.xml`
-  → `tests="4" skipped="0" failures="0" errors="0"`.
-- `build/test-results/test/TEST-io.reflectoring.buckpal.account.domain.ActivityWindowTest.xml`
-  → `tests="3" skipped="0" failures="0" errors="0"`.
-- Aggregate `tests=` sum across all `TEST-*.xml` files in `build/test-results/test/` = **16**.
-- Aggregate `failures=` sum = **0**.
+### Check 2 — `@JvmInline value class` wrapping `LocalDateTime`
 
-## Contract checklist
+```
+$ grep -Eq '@JvmInline\s*$|@JvmInline[[:space:]]+value[[:space:]]+class' src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt \
+  && grep -Eq 'value[[:space:]]+class[[:space:]]+BaselineDate' src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt \
+  && grep -Eq 'val[[:space:]]+value[[:space:]]*:[[:space:]]*LocalDateTime' src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt
+$ echo $?
+0
+```
+PASS.
 
-| Contract acceptance check | Status | Evidence |
-|---------------------------|--------|----------|
-| `grep -E "^class AccountTest\s*:\s*BehaviorSpec" AccountTest.kt` matches one line | **PASS** | Matches `class AccountTest : BehaviorSpec({` at line 12 |
-| `grep -E "^class ActivityWindowTest\s*:\s*BehaviorSpec" ActivityWindowTest.kt` matches one line | **PASS** | Matches `class ActivityWindowTest : BehaviorSpec({` at line 9 |
-| `grep -n "org.junit.jupiter"` in both files → no matches | **PASS** | Exit 1 (empty) |
-| `grep -n "org.assertj.core"` in both files → no matches | **PASS** | Exit 1 (empty) |
-| `grep -n "@Test"` in both files → no matches | **PASS** | Exit 1 (empty) |
-| Required matcher / spec imports present in `AccountTest.kt` | **PASS** | Lines 3–7: `BehaviorSpec`, `shouldBeFalse`, `shouldBeTrue`, `shouldHaveSize`, `shouldBe` |
-| Required matcher / spec imports present in `ActivityWindowTest.kt` | **PASS** | Lines 3–4: `BehaviorSpec`, `shouldBe`. No boolean matchers (none used in this file, per contract note "boolean matchers are not expected in this file"). `shouldHaveSize` not imported because no size assertions exist in this file's body — the contract grep marks `shouldHaveSize` as "appear as needed". |
-| `git diff --name-only HEAD -- src/ build.gradle` lists exactly the two domain test files | **PASS** | Output is exactly the two `.kt` paths |
-| `git diff --name-only HEAD -- src/main/` empty | **PASS** | Empty output |
-| `git diff --name-only HEAD -- src/test/kotlin/io/reflectoring/buckpal/common/` empty | **PASS** | Empty output |
-| `./gradlew test --tests "io.reflectoring.buckpal.account.domain.*"` exits 0 | **PASS** | BUILD SUCCESSFUL |
-| `TEST-...AccountTest.xml` reports `tests="4"` / 0 failures / 0 errors / 0 skipped | **PASS** | Confirmed in `build/test-results/test/` |
-| `TEST-...ActivityWindowTest.xml` reports `tests="3"` / 0 failures / 0 errors / 0 skipped | **PASS** | Confirmed in `build/test-results/test/` |
-| `./gradlew test` full suite exits 0; aggregate leaf-test count is unchanged at 16 | **PASS** | BUILD SUCCESSFUL; aggregate `tests=` sum is 16 |
-| `./gradlew check` exits 0 (ArchUnit included) | **PASS** | BUILD SUCCESSFUL |
-| No `lateinit` / `!!` in either file | **PASS** | `grep -nE "(\blateinit\b|!!)"` → empty (exit 1) |
-| Only infix `shouldBe`, never `.shouldBe(` | **PASS** | `grep -nE "\.shouldBe\("` → empty (exit 1) |
+### Check 2b — `companion object` factory `now(): BaselineDate`
 
-All 16 acceptance checks pass.
+```
+$ grep -q 'companion[[:space:]]*object' src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt \
+  && grep -Eq 'fun[[:space:]]+now\s*\(\s*\)[[:space:]]*:[[:space:]]*BaselineDate' src/main/kotlin/io/reflectoring/buckpal/account/domain/BaselineDate.kt
+$ echo $?
+0
+```
+PASS.
 
-## Idiomatic Kotlin choices worth flagging
+### Check 3 — `LoadAccountPort.loadAccount` uses `BaselineDate`
 
-- **`BehaviorSpec` for both files**, as the round-1 AGREED contract committed.
-  Each file is one `class XTest : BehaviorSpec({ ... })` with a single
-  top-level `given` wrapping one `` `when` `` per former `@Test`, and one
-  `then` leaf per former `@Test` body. 4 + 3 = 7 leaf tests, matching the
-  contract's leaf-test budget exactly.
-- **Back-ticked `` `when` ``** — Kotest 5.5.x's `BehaviorSpec` exposes the
-  builder name `when`, which collides with the Kotlin keyword. Both files
-  use back-ticks throughout. No `When { ... }` alias is provided by 5.5.5,
-  so back-ticks are mandatory at this version.
-- **Infix `shouldBe`** everywhere; the negative-grep AC for non-infix
-  method-call form passes empty.
-- **`shouldHaveSize` infix** in `AccountTest.kt`
-  (`account.activityWindow.getActivities() shouldHaveSize 3`).
-- **No `!!`, no `lateinit var`.** Each leaf re-builds its own `Account` /
-  `ActivityWindow` from the test fixtures — same per-test isolation the
-  original `@Test`-per-method form had. Kotest re-evaluates the
-  `BehaviorSpec` lambda per leaf by default, so even shared `val`s inside a
-  `` `when` `` block would be re-evaluated; but the migration kept each
-  `then` self-contained for maximum clarity.
-- **Helper functions in `ActivityWindowTest`** — the three private
-  `LocalDateTime` helpers became
-  `val startDate: () -> LocalDateTime = { LocalDateTime.of(...) }` lambdas at
-  the top of the `BehaviorSpec` body, invoked as `startDate()` at every call
-  site. `LocalDateTime.of(...)` is pure, so plain `val`s would behave
-  identically; lambdas were chosen to preserve the syntactic shape of "method
-  call" at every call site, keeping the conversion visually 1-to-1 with the
-  JUnit version.
-- **Container/leaf separation is strict**: no `shouldBe` calls in `given`
-  or `` `when` `` containers. Every assertion is inside a `then(...) { ... }`
-  block. This is what makes Kotest count exactly 4 / 3 leaves under the
-  documented `TEST-<FQCN>.xml` reports.
+```
+$ grep -E 'fun loadAccount.*baselineDate[[:space:]]*:[[:space:]]*BaselineDate' src/main/kotlin/io/reflectoring/buckpal/account/application/port/out/LoadAccountPort.kt
+    fun loadAccount(accountId: Account.AccountId, baselineDate: BaselineDate): Account
+$ echo $?
+0
+```
+PASS.
 
-## Anything the Evaluator should pay extra attention to
+### Check 4 — no raw `LocalDateTime.now()` in the two service files
 
-1. **The earlier `needs input:` handoff is now resolved.** The blocker was
-   a build-script BOM defect resolved in commit `753c1dc` (separate Sprint 00
-   follow-up commit). The Generator did not edit `build.gradle` in Sprint 01;
-   that change is owned by the Sprint 00 hot-fix.
-2. **No production code edits.** `git diff --name-only HEAD -- src/main/` is
-   empty. The hexagonal-architecture invariants (`Account`, `Money`,
-   `ActivityWindow` under `account/domain/`) are byte-identical to
-   pre-sprint.
-3. **No fixture edits.** `AccountTestData.kt` and `ActivityTestData.kt` under
-   `src/test/kotlin/io/reflectoring/buckpal/common/` are untouched. The
-   migrated specs import `defaultAccount` and `defaultActivity` exactly as
-   the JUnit form did.
-4. **JUnit Platform engine collision did not occur.** Even with both engines
-   registered (Jupiter and Kotest), the migrated classes have zero `@Test`
-   annotations and extend `BehaviorSpec`, so Jupiter does not discover them
-   and the Kotest engine is the only one that picks them up. The 16-test
-   aggregate (was 16 pre-sprint, is 16 post-sprint) confirms no
-   duplicate-execution.
-5. **`Money` `BigDecimal` scale equality is preserved.** All `shouldBe`
-   comparisons in `AccountTest.kt` are between `Money.of(longLiteral)` on
-   both sides (matching the original AssertJ form), so `BigDecimal.equals`
-   scale-sensitivity is not a behavior change.
+```
+$ grep -nE 'LocalDateTime\.now\s*\(\s*\)' src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt src/main/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceService.kt
+$ echo $?
+1
+```
+PASS (exit 1 = no matches, as required).
 
-## TODOs deferred to later sprints
+### Check 4b — `loadAccountPort.loadAccount` call sites still exist
 
-- **Sprint 02 (`SendMoneyServiceTest`)** — first sprint that introduces
-  MockK. The coroutines 1.6.4 dependency that the Sprint 00 hot-fix added
-  also unblocks any future MockK suspend-stub usage, though Sprint 02 does
-  not need coroutines (the service is pure synchronous logic).
-- **Sprint 03+ (Spring-flavored specs)** — `kotest-extensions-spring` is
-  registered on `testRuntimeClasspath` (per Sprint 00) under the corrected
-  coordinate `io.kotest.extensions:kotest-extensions-spring:1.1.3` (group is
-  `io.kotest.extensions`, not `io.kotest`). The Sprint 03 contract should
-  use this coordinate without re-discovering the typo.
+```
+$ grep -nE 'loadAccountPort\.loadAccount\b' src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt src/main/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceService.kt
+src/main/kotlin/io/reflectoring/buckpal/account/application/service/GetAccountBalanceService.kt:14:        loadAccountPort.loadAccount(accountId, BaselineDate.now()).calculateBalance()
+src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt:26:        val sourceAccount = loadAccountPort.loadAccount(command.sourceAccountId, baselineDate)
+src/main/kotlin/io/reflectoring/buckpal/account/application/service/SendMoneyService.kt:27:        val targetAccount = loadAccountPort.loadAccount(command.targetAccountId, baselineDate)
+```
+PASS (1 hit in `GetAccountBalanceService.kt`, 2 hits in `SendMoneyService.kt`).
+
+### Check 5 — external contract files untouched (working tree)
+
+```
+$ for f in src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt \
+           src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt \
+           src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt \
+           src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt; do
+    git diff --quiet -- "$f" && echo "OK: $f" || echo "FAIL: $f"
+  done
+OK: src/main/kotlin/io/reflectoring/buckpal/account/adapter/in/web/SendMoneyController.kt
+OK: src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityRepository.kt
+OK: src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/AccountJpaEntity.kt
+OK: src/main/kotlin/io/reflectoring/buckpal/account/adapter/out/persistence/ActivityJpaEntity.kt
+```
+PASS for all four. (The post-commit `git diff --quiet HEAD~1 HEAD -- <file>`
+form is for the Evaluator to run once the orchestrator has produced the
+sprint commit; Generator does not commit.)
+
+### Check 6 — full clean build + check
+
+```
+$ ./gradlew clean build check
+...
+BUILD SUCCESSFUL in 28s
+10 actionable tasks: 10 executed
+```
+PASS. All tests pass (`Task :test` succeeded), `Task :check` succeeded,
+`Task :build` succeeded. ArchUnit `DependencyRuleTests` is part of the
+`:test` task and passed.
+
+### Check 7 — `SendMoneySystemTest` passes
+
+```
+$ ./gradlew test --tests "io.reflectoring.buckpal.SendMoneySystemTest"
+...
+BUILD SUCCESSFUL in 15s
+6 actionable tasks: 2 executed, 4 up-to-date
+```
+PASS.
+
+### Check 8 — no Lombok regressions
+
+```
+$ grep -R "import lombok" src/
+$ echo $?
+1
+```
+PASS (exit 1 = no matches anywhere under `src/`).
 
 ## Commit
 
-No `git commit` performed by the Generator (per generator.md hard rule —
-the orchestrator owns git state).
+`feat(domain): sprint-01 — extract BaselineDate value class for activity-window cutoff`
 
-Proposed one-line commit subject for the orchestrator:
+## Notes for Evaluator
 
-```
-feat(kotest): sprint 01 — migrate account/domain tests to Kotest BehaviorSpec
-```
+1. **Mockk + `@JvmInline value class` interop.** The first build run after the
+   production code changes was red with five `NullPointerException`s inside
+   `SignedCall.toString` (chain: `String.valueOf → AbstractCollection.toString
+   → StringConcatHelper.stringOf → LocalDateTime.toString`). Root cause:
+   mockk 1.13.8 cannot synthesize a non-null `LocalDateTime` for an
+   `any<BaselineDate>()` matcher slot because the Kotlin compiler unboxes the
+   value class on the JVM ABI (`loadAccount-6vJy7ms(AccountId, LocalDateTime)`)
+   while the mockk matcher tracks the boxed `BaselineDate`. Adding
+   `registerInstanceFactory` for both `LocalDateTime` and `BaselineDate`
+   removed the NPE but then mockk emitted `MockKException: Failed matching
+   mocking signature ... left matchers: [matcher<BaselineDate>()]` because its
+   slot-attribution pass uses the boxed Kotlin type while the recorded arg
+   list uses the unboxed JVM type, leaving the matcher unattributed.
+   Match-predicates (`match { true }`) and `any<BaselineDate>()` both hit the
+   same dead end. The cleanest available workaround without touching
+   `build.gradle` (per the contract's *Out of scope*) was to replace the
+   `LoadAccountPort` mockk mock with a hand-rolled test double in the two
+   service tests; the double implements the port directly so no matchers are
+   needed. All other mocks (`Account`, `AccountLock`, `UpdateAccountStatePort`,
+   and `LoadAccountPort` in `AccountPersistenceAdapterTest` — but that one
+   uses Spring-injected real adapters, not mockk) are untouched.
+
+2. **Test assertion semantics.** The `RecordingLoadAccountPort` /
+   `StubbedLoadAccountPort` doubles record both the `AccountId` and
+   `BaselineDate` arguments per call. In `SendMoneyServiceTest`, the
+   "threshold exceeded" leaf used to assert
+   `verify(exactly = 0) { loadAccountPort.loadAccount(any(), any()) }`; that
+   becomes `loadAccountPort.loadCallsByAccountId.size shouldBe 0`, which is
+   identical in intent (zero recorded calls) with no weakening. The
+   "two-account transfer" leafs no longer call `verify` on the port because
+   the recording behaviour already proves both accounts were loaded
+   (otherwise `withdraw`/`deposit` would never have been invoked). Worth a
+   second look if the Evaluator feels this thins the contract — happy to add
+   explicit counter assertions in a follow-up.
+
+3. **Risk #2 in the contract** stated that "Mockk
+   `every { loadAccountPort.loadAccount(any(), any()) }` continues to work
+   because `any()` is generic." That turned out to be wrong empirically
+   against mockk 1.13.8 + Kotlin 1.6.21. The contract itself does not forbid
+   the test-double workaround (it only forbids touching the four declared
+   external-contract files, `build.gradle`, and the wrapper). No other
+   acceptance check was relaxed.
+
+4. **HQL boundary preserved.** `AccountPersistenceAdapter.loadAccount` now
+   takes a `BaselineDate` parameter and unwraps it via `baselineDate.value`
+   on each of the three `ActivityRepository.*` calls. `ActivityRepository.kt`
+   itself is byte-identical to its pre-sprint version (Check 5).
+
+5. **`BaselineDate.minusDays`.** Left the small `minusDays(days: Long):
+   BaselineDate` helper on the value class because `SendMoneyService`
+   composes `BaselineDate.now().minusDays(10)`. The spec/contract only
+   *require* a `now()` factory ("at minimum"), and operator overloads were
+   flagged as "only when they read naturally" — `minusDays` reads naturally
+   and avoids unwrapping back to `LocalDateTime` at the call site. If the
+   Evaluator prefers strict minimalism, it can be inlined to
+   `BaselineDate(LocalDateTime.now().minusDays(10))` at the one call site
+   without losing readability.
+
+6. **`AccountFactoriesTest` / `AccountTestData` / `MoneyTransferPropertiesTest`
+   / `ThresholdExceededExceptionTest` etc.** were inspected and left alone
+   per the spec's conditional "only if they call the port" clause — none of
+   them reference `LoadAccountPort` or `BaselineDate`.
+
+7. **`SendMoneySystemTest`** *did* call
+   `loadAccountPort.loadAccount(..., LocalDateTime.now())` from its internal
+   `loadAccount` helper (so the spec's conditional did apply). The single
+   call site now passes `BaselineDate(LocalDateTime.now())`. The HTTP
+   exchange itself is completely unchanged.

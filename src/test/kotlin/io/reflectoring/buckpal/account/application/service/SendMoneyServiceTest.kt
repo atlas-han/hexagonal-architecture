@@ -13,9 +13,35 @@ import io.reflectoring.buckpal.account.application.port.out.LoadAccountPort
 import io.reflectoring.buckpal.account.application.port.out.UpdateAccountStatePort
 import io.reflectoring.buckpal.account.domain.Account
 import io.reflectoring.buckpal.account.domain.Account.AccountId
+import io.reflectoring.buckpal.account.domain.BaselineDate
 import io.reflectoring.buckpal.account.domain.Money
 
 class SendMoneyServiceTest : BehaviorSpec({
+
+    // Hand-rolled test double for LoadAccountPort. We cannot use `mockk` here
+    // because the port now takes a `@JvmInline value class BaselineDate` and
+    // mockk 1.13.8 cannot bind a matcher slot to a value-class parameter at
+    // signature-detection time (JVM ABI unboxes to LocalDateTime while the
+    // matcher is typed BaselineDate). All other collaborators stay mockk —
+    // only loadAccount is affected because it is the sole port method that
+    // exposes the new VO to its tests. Once mockk gains first-class inline-
+    // value-class matchers, this can collapse back to a single mockk-based
+    // setup using any<BaselineDate>().
+    class StubbedLoadAccountPort : LoadAccountPort {
+        private val accounts = mutableMapOf<AccountId, Account>()
+        val loadCallsByAccountId: MutableMap<AccountId, Int> = mutableMapOf()
+        val loadCallsBaseline: MutableList<BaselineDate> = mutableListOf()
+
+        fun put(id: AccountId, account: Account) {
+            accounts[id] = account
+        }
+
+        override fun loadAccount(accountId: AccountId, baselineDate: BaselineDate): Account {
+            loadCallsByAccountId[accountId] = (loadCallsByAccountId[accountId] ?: 0) + 1
+            loadCallsBaseline.add(baselineDate)
+            return accounts[accountId] ?: error("no stub for $accountId")
+        }
+    }
 
     // Each leaf re-runs the spec lambda, so every leaf gets a fresh mock
     // graph — no shared mutable state, no clearMocks() gymnastics needed.
@@ -27,12 +53,12 @@ class SendMoneyServiceTest : BehaviorSpec({
         MoneyTransferProperties(Money.of(Long.MAX_VALUE))
 
     fun givenAnAccountWithId(
-        loadAccountPort: LoadAccountPort,
+        loadAccountPort: StubbedLoadAccountPort,
         id: AccountId,
     ): Account {
         val account = mockk<Account>()
         every { account.id } returns id
-        every { loadAccountPort.loadAccount(id, any()) } returns account
+        loadAccountPort.put(id, account)
         return account
     }
 
@@ -66,7 +92,7 @@ class SendMoneyServiceTest : BehaviorSpec({
     given("the source account's withdrawal will fail") {
         `when`("sending money") {
             then("only the source account is locked and released") {
-                val loadAccountPort = mockk<LoadAccountPort>()
+                val loadAccountPort = StubbedLoadAccountPort()
                 val accountLock = mockk<AccountLock>(relaxUnitFun = true)
                 val updateAccountStatePort = mockk<UpdateAccountStatePort>(relaxUnitFun = true)
                 val sendMoneyService = SendMoneyService(
@@ -105,7 +131,7 @@ class SendMoneyServiceTest : BehaviorSpec({
     given("a source and target account both ready to transact") {
         `when`("sending money") {
             then("the transaction succeeds and both accounts are locked, mutated, released, and persisted") {
-                val loadAccountPort = mockk<LoadAccountPort>()
+                val loadAccountPort = StubbedLoadAccountPort()
                 val accountLock = mockk<AccountLock>(relaxUnitFun = true)
                 val updateAccountStatePort = mockk<UpdateAccountStatePort>(relaxUnitFun = true)
                 val sendMoneyService = SendMoneyService(
@@ -156,7 +182,7 @@ class SendMoneyServiceTest : BehaviorSpec({
     given("a command whose amount exceeds the maximum transfer threshold") {
         `when`("sending money") {
             then("a ThresholdExceededException is thrown and no account is loaded") {
-                val loadAccountPort = mockk<LoadAccountPort>()
+                val loadAccountPort = StubbedLoadAccountPort()
                 val accountLock = mockk<AccountLock>(relaxUnitFun = true)
                 val updateAccountStatePort = mockk<UpdateAccountStatePort>(relaxUnitFun = true)
                 val sendMoneyService = SendMoneyService(
@@ -176,7 +202,7 @@ class SendMoneyServiceTest : BehaviorSpec({
                     sendMoneyService.sendMoney(command)
                 }
 
-                verify(exactly = 0) { loadAccountPort.loadAccount(any(), any()) }
+                loadAccountPort.loadCallsByAccountId.size shouldBe 0
                 verify(exactly = 0) { accountLock.lockAccount(any()) }
                 verify(exactly = 0) { accountLock.releaseAccount(any()) }
                 verify(exactly = 0) { updateAccountStatePort.updateActivities(any()) }
@@ -187,7 +213,7 @@ class SendMoneyServiceTest : BehaviorSpec({
     given("a withdrawal that succeeds but a deposit that fails") {
         `when`("sending money") {
             then("the result is false, both locks are acquired and released, and no activities are persisted") {
-                val loadAccountPort = mockk<LoadAccountPort>()
+                val loadAccountPort = StubbedLoadAccountPort()
                 val accountLock = mockk<AccountLock>(relaxUnitFun = true)
                 val updateAccountStatePort = mockk<UpdateAccountStatePort>(relaxUnitFun = true)
                 val sendMoneyService = SendMoneyService(
