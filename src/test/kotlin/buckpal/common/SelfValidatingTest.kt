@@ -4,9 +4,9 @@ import io.kotest.assertions.throwables.shouldNotThrowAny
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.shouldNotBe
-import javax.validation.ConstraintViolationException
-import javax.validation.constraints.Min
-import javax.validation.constraints.NotNull
+import jakarta.validation.ConstraintViolationException
+import jakarta.validation.constraints.Min
+import jakarta.validation.constraints.NotNull
 
 class SelfValidatingTest : DescribeSpec({
 

@@ -7,7 +7,7 @@ import buckpal.account.domain.BaselineBalanceFigures
 import buckpal.account.domain.BaselineDate
 import buckpal.account.domain.Money
 import buckpal.common.PersistenceAdapter
-import javax.persistence.EntityNotFoundException
+import jakarta.persistence.EntityNotFoundException
 
 @PersistenceAdapter
 internal class AccountPersistenceAdapter(

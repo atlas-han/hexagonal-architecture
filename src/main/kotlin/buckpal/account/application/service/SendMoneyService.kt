@@ -7,7 +7,7 @@ import buckpal.account.application.port.out.LoadAccountPort
 import buckpal.account.application.port.out.UpdateAccountStatePort
 import buckpal.account.domain.BaselineDate
 import buckpal.common.UseCase
-import javax.transaction.Transactional
+import jakarta.transaction.Transactional
 
 @UseCase
 @Transactional
